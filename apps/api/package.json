@@ -1,0 +1,26 @@
+{
+  "name": "@repo/api",
+  "type": "module",
+  "scripts": {
+    "dev": "dotenv-run -e development -- tsx watch src/index.ts",
+    "build": "dotenv-run -e production -- tsc",
+    "start": "dotenv-run -e production -- node dist/index.js",
+    "eslint:fix": "eslint src --fix",
+    "typecheck": "tsc --noEmit --watch"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.1",
+    "@orpc/openapi": "^1.1.1",
+    "@orpc/server": "^1.1.1",
+    "@repo/db": "workspace:*",
+    "@repo/eslint-config": "workspace:*",
+    "@repo/router": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "better-auth": "^1.2.7",
+    "hono": "^4.7.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.17",
+    "tsx": "^4.7.1"
+  }
+}

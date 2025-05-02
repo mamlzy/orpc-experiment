@@ -1,0 +1,43 @@
+services:
+  learning-web:
+    container_name: learning-web
+    image: learning-web
+    build:
+      context: .
+      dockerfile: ./apps/web/Dockerfile
+    restart: always
+    ports:
+      - 3010:3000
+    environment:
+      - NODE_ENV=production
+    networks:
+      - learning-network
+    depends_on:
+      - learning-api
+    # env_file: './apps/web/.env.production'
+
+  learning-api:
+    container_name: learning-api
+    image: learning-api
+    build:
+      context: .
+      dockerfile: ./apps/api/Dockerfile
+    restart: always
+    ports:
+      - 3011:5000
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - learning-api:/app/apps/api/public #! type volume
+    networks:
+      - learning-network
+    # env_file: './apps/api/.env.production'
+
+networks:
+  learning-network:
+    name: learning-network
+    # external: true
+
+volumes:
+  learning-api:
+    name: learning-api

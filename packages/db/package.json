@@ -1,0 +1,57 @@
+{
+  "name": "@repo/db",
+  "version": "1.0.0",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "require": "./dist/index.js",
+      "import": "./dist/index.mjs"
+    },
+    "./model": {
+      "types": "./src/model/index.ts",
+      "require": "./dist/model/index.js",
+      "import": "./dist/model/index.mjs"
+    },
+    "./schema": {
+      "types": "./src/schema/index.ts",
+      "require": "./dist/schema/index.js",
+      "import": "./dist/schema/index.mjs"
+    },
+    "./types": {
+      "types": "./src/types/index.ts",
+      "require": "./dist/types/index.js",
+      "import": "./dist/types/index.mjs"
+    }
+  },
+  "scripts": {
+    "dev": "dotenv-run -e development -- tsup --watch",
+    "build": "dotenv-run -e production -- tsup",
+    "eslint": "eslint src",
+    "eslint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit --watch",
+    "clean": "rimraf .turbo node_modules dist",
+    "db:generate": "dotenv-run -e development -- drizzle-kit generate",
+    "db:push": "dotenv-run -e development -- drizzle-kit push",
+    "db:studio": "dotenv-run -e development -- drizzle-kit studio",
+    "prod:db:generate": "dotenv-run -e production -- drizzle-kit generate",
+    "prod:db:push": "dotenv-run -e production -- drizzle-kit push",
+    "prod:db:studio": "dotenv-run -e production -- drizzle-kit studio"
+  },
+  "dependencies": {
+    "@paralleldrive/cuid2": "2.2.2",
+    "drizzle-orm": "^0.43.1",
+    "drizzle-zod": "^0.7.1",
+    "postgres": "^3.4.5",
+    "type-fest": "^4.26.1"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^22.15.3",
+    "drizzle-kit": "^0.29.1",
+    "eslint": "^8",
+    "rimraf": "^6.0.1",
+    "tsup": "^8.4.0",
+    "tsx": "^4.19.1"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "@repo/router",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsc",
+    "eslint:fix": "eslint src --fix",
+    "typecheck": "tsc --noEmit --watch"
+  },
+  "dependencies": {
+    "@orpc/server": "^1.1.1",
+    "drizzle-orm": "^0.43.1",
+    "hono": "^4.7.8",
+    "papaparse": "^5.5.2",
+    "postgres": "^3.4.5",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@repo/db": "workspace:*",
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@turbo/gen": "^2.5.0",
+    "@types/node": "^22.15.3",
+    "@types/papaparse": "^5.3.15",
+    "@types/react": "19.1.0",
+    "@types/react-dom": "19.1.1"
+  }
+}
