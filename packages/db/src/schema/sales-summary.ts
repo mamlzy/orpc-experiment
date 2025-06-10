@@ -1,14 +1,14 @@
 import { createInsertSchema, createUpdateSchema } from 'drizzle-zod';
 import { z } from 'zod';
 
-import { salesSummaries } from '../model';
+import { salesSummaryTable } from '../model';
 
 const optionalFloatData = z
   .preprocess((val) => Number(val), z.number().int().positive())
   .nullable()
   .optional();
 
-export const insertSalesSummarySchema = createInsertSchema(salesSummaries, {
+export const insertSalesSummarySchema = createInsertSchema(salesSummaryTable, {
   january: optionalFloatData,
   february: optionalFloatData,
   march: optionalFloatData,
@@ -25,7 +25,7 @@ export const insertSalesSummarySchema = createInsertSchema(salesSummaries, {
   companyId: z.preprocess((val) => Number(val), z.number().int().positive()),
 });
 
-export const updateSalesSummarySchema = createUpdateSchema(salesSummaries, {
+export const updateSalesSummarySchema = createUpdateSchema(salesSummaryTable, {
   january: optionalFloatData,
   february: optionalFloatData,
   march: optionalFloatData,

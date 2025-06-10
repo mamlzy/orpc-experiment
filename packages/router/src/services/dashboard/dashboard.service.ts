@@ -1,18 +1,23 @@
-import { and, db, inArray, sql } from '@repo/db';
-import { customers, customersPics } from '@repo/db/model';
+import { and, db, eq, isNull, SQL, sql } from '@repo/db';
+import {
+  customerPicTable,
+  customerTable,
+  type CustomerTypeEnum,
+} from '@repo/db/model';
 
-import { buildWhereClause } from '../../utils/whereClause';
+type Customer = typeof customerTable.$inferSelect;
 
-type Customer = typeof customers.$inferSelect;
+export const getTotalCustomer = async (query: {
+  customerType?: CustomerTypeEnum;
+}) => {
+  const where: SQL[] = [isNull(customerTable.deletedAt)];
 
-export const getTotalCustomer = async (query: Partial<Customer>) => {
-  const whereConditions = buildWhereClause(customers, query);
-  const whereClause = whereConditions.length
-    ? and(...whereConditions)
-    : undefined;
+  if (query.customerType) {
+    where.push(eq(customerTable.customerType, query.customerType));
+  }
 
-  const data = await db.query.customers.findMany({
-    where: whereClause,
+  const data = await db.query.customerTable.findMany({
+    where: and(...where),
     with: {
       customerPics: true,
     },
@@ -26,13 +31,13 @@ export const getTotalCustomer = async (query: Partial<Customer>) => {
   let total_customer_without_pic = 0;
 
   for (const item of data) {
-    if (item.status === 'Active') {
+    if (item.status === 'ACTIVE') {
       total_active_customer++;
     }
-    if (item.status === 'Inactive') {
+    if (item.status === 'INACTIVE') {
       total_inactive_customer++;
     }
-    if (item.status === 'Bank Data') {
+    if (item.status === 'BANK_DATA') {
       total_bank_data_customer++;
     }
     total_customer++;
@@ -54,7 +59,7 @@ export const getTotalCustomer = async (query: Partial<Customer>) => {
   };
 };
 
-export const getTotalRevenue = async (_query: Partial<Customer>) => {
+export const getTotalRevenue = (_query: Partial<Customer>) => {
   return {
     '2019':
       Math.floor(Math.random() * (30000000000 - 100000000 + 1)) + 100000000,
@@ -71,23 +76,43 @@ export const getTotalRevenue = async (_query: Partial<Customer>) => {
   };
 };
 
-export const getTotalCustomerByCountry = async (query: Partial<Customer>) => {
-  const whereConditions = buildWhereClause(customers, query);
-  const whereClause = whereConditions.length
-    ? and(...whereConditions)
-    : undefined;
+export const getTotalCustomerByCountry = async (query: {
+  customerType?: CustomerTypeEnum;
+  page?: number;
+  limit?: number;
+}) => {
+  const page = Math.max(Number(query?.page) || 1, 1);
+  const limit = Math.max(Number(query?.limit) || 10, 1);
+  const offset = (page - 1) * limit;
+
+  const where: SQL[] = [isNull(customerTable.deletedAt)];
+
+  if (query.customerType) {
+    where.push(eq(customerTable.customerType, query.customerType));
+  }
 
   const data = await db
     .select({
-      country: customers.country,
+      country: customerTable.country,
       total: sql<number>`COUNT(*)`.as('total'),
     })
-    .from(customers)
-    .where(whereClause)
-    .groupBy(customers.country)
-    .orderBy(sql`total DESC`);
+    .from(customerTable)
+    .where(and(...where))
+    .groupBy(customerTable.country)
+    .orderBy(sql`total DESC`)
+    .limit(limit)
+    .offset(offset);
 
-  return data;
+  const totalCountResult = await db
+    .select({
+      count: sql<number>`COUNT(DISTINCT ${customerTable.country})`.as('count'),
+    })
+    .from(customerTable)
+    .where(and(...where));
+
+  const totalCount = totalCountResult[0]?.count ?? 0;
+
+  return { data, totalCount };
 };
 
 export const getRecentClosing = async (_query: Partial<Customer>) => {
@@ -119,52 +144,39 @@ export const getRecentClosing = async (_query: Partial<Customer>) => {
   ];
 };
 
-export const getTotalCustomerBySector = async (query: Partial<Customer>) => {
-  const whereConditions = buildWhereClause(customers, query);
-  const whereClause = whereConditions.length
-    ? and(...whereConditions)
-    : undefined;
+export const getTotalCustomerBySector = async (query: {
+  customerType?: CustomerTypeEnum;
+}) => {
+  const where: SQL[] = [isNull(customerTable.deletedAt)];
+
+  if (query.customerType) {
+    where.push(eq(customerTable.customerType, query.customerType));
+  }
 
   const data = await db
     .select({
-      sector: customers.sector,
+      sector: customerTable.sector,
       total: sql<number>`COUNT(*)`.as('total'),
     })
-    .from(customers)
-    .where(whereClause)
-    .groupBy(customers.sector)
+    .from(customerTable)
+    .where(and(...where))
+    .groupBy(customerTable.sector)
     .orderBy(sql`total DESC`);
 
   return data;
 };
 
-export const getTotalPicCustomer = async (
-  query: Partial<Customer> & { customerType?: 'International' | 'Domestic' }
-) => {
-  const customerWhereClause = buildWhereClause(customers, {
-    customerType: query.customerType,
-  });
-
-  const whereClause = customerWhereClause.length
-    ? and(
-        inArray(
-          customersPics.customerId,
-          db
-            .select({ id: customers.id })
-            .from(customers)
-            .where(and(...customerWhereClause))
-        )
-      )
-    : undefined;
+export const getTotalPicCustomer = async () => {
+  const where: SQL[] = [isNull(customerPicTable.deletedAt)];
 
   const data = await db
     .select({
-      position: customersPics.position,
+      position: customerPicTable.position,
       total: sql<number>`COUNT(*)`.as('total'),
     })
-    .from(customersPics)
-    .where(whereClause)
-    .groupBy(customersPics.position)
+    .from(customerPicTable)
+    .where(and(...where))
+    .groupBy(customerPicTable.position)
     .orderBy(sql`total DESC`);
 
   return data;

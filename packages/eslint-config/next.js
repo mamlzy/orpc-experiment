@@ -26,6 +26,7 @@ module.exports = {
     //! turbo
     'turbo/no-undeclared-env-vars': 0,
     //! typescript
+    '@typescript-eslint/no-shadow': 0,
     '@typescript-eslint/no-unused-vars': [
       'warn',
       {
@@ -34,22 +35,23 @@ module.exports = {
         caughtErrorsIgnorePattern: '^_',
       },
     ],
-    '@typescript-eslint/no-use-before-define': 'off',
-    '@typescript-eslint/naming-convention': 'off',
-    '@typescript-eslint/no-unused-expressions': 'off',
-    // '@typescript-eslint/no-implied-eval': 'off',
-    // '@typescript-eslint/no-throw-literal': 'off',
-    // '@typescript-eslint/return-await': 'off',
-    // '@typescript-eslint/dot-notation': 'off',
-    // '@typescript-eslint/no-shadow': 'off',
+    '@typescript-eslint/no-use-before-define': 0,
+    '@typescript-eslint/naming-convention': 0,
+    '@typescript-eslint/no-unused-expressions': 0,
+    // '@typescript-eslint/no-implied-eval': 0,
+    // '@typescript-eslint/no-throw-literal': 0,
+    // '@typescript-eslint/return-await': 0,
+    // '@typescript-eslint/dot-notation': 0,
+    // '@typescript-eslint/no-shadow': 0,
     //! react
-    'react/react-in-jsx-scope': 'off',
-    'react/jsx-props-no-spreading': 'off',
-    'react/prop-types': 'off',
-    'react/require-default-props': 'off',
-    'react/no-array-index-key': 'off',
-    'react/no-unstable-nested-components': 'off',
-    'react/no-unescaped-entities': 'off',
+    'react/no-children-prop': 0,
+    'react/react-in-jsx-scope': 0,
+    'react/jsx-props-no-spreading': 0,
+    'react/prop-types': 0,
+    'react/require-default-props': 0,
+    'react/no-array-index-key': 0,
+    'react/no-unstable-nested-components': 0,
+    'react/no-unescaped-entities': 0,
     'react/function-component-definition': [
       'error',
       {
@@ -58,20 +60,22 @@ module.exports = {
       },
     ],
     //! react-hooks
-    'react-hooks/rules-of-hooks': 'off',
-    'react-hooks/exhaustive-deps': 'off',
+    'react-hooks/rules-of-hooks': 0,
+    'react-hooks/exhaustive-deps': 0,
     //! jsx-a11y
-    'jsx-a11y/label-has-associated-control': 'off',
+    'jsx-a11y/label-has-associated-control': 0,
+    'jsx-a11y/no-static-element-interactions': 0,
+    'jsx-a11y/click-events-have-key-events': 0,
     //! import
-    'import/order': 'off',
-    // 'import/extensions': 'off',
-    'import/prefer-default-export': 'off',
-    'import/no-extraneous-dependencies': 'off',
+    'import/order': 0,
+    // 'import/extensions': 0,
+    'import/prefer-default-export': 0,
+    'import/no-extraneous-dependencies': 0,
     //! no
-    'no-console': 'off',
-    'no-nested-ternary': 'off',
-    'no-plusplus': 'off',
-    'no-restricted-syntax': 'off',
+    'no-console': 0,
+    'no-nested-ternary': 0,
+    'no-plusplus': 0,
+    'no-restricted-syntax': 0,
   },
   // settings: {
   //   'import/resolver': {
@@ -88,7 +92,7 @@ module.exports = {
     {
       files: ['*.ts', '*.tsx'],
       rules: {
-        'no-undef': 'off',
+        'no-undef': 0,
       },
     },
   ],

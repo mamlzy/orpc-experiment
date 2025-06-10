@@ -1,10 +1,13 @@
-import { createInsertSchema, createUpdateSchema } from 'drizzle-zod';
 import { z } from 'zod';
 
-import { services } from '../model';
+export const createServiceSchema = z.object({
+  name: z.string().trim().nonempty(),
+  description: z.string().trim().nonempty(),
+});
 
-export const insertServiceSchema = createInsertSchema(services);
-export const updateServiceSchema = createUpdateSchema(services);
+export const createServicesSchema = createServiceSchema.array();
 
-export type ServiceInput = z.infer<typeof insertServiceSchema>;
-export type ServiceUpdate = z.infer<typeof updateServiceSchema>;
+export const updateServiceSchema = createServiceSchema;
+
+export type CreateServiceSchema = z.infer<typeof createServiceSchema>;
+export type UpdateServiceSchema = z.infer<typeof updateServiceSchema>;

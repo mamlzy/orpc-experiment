@@ -1,10 +1,10 @@
 import { and, count, db, eq } from '@repo/db';
-import { roles } from '@repo/db/model';
+import { roleTable } from '@repo/db/model';
 import type { RoleInput, RoleUpdate } from '@repo/db/schema';
 
-import { buildWhereClause } from '../../utils/whereClause';
+import { buildWhereClause } from '../../utils/where-clause';
 
-type Role = typeof roles.$inferSelect;
+type Role = typeof roleTable.$inferSelect;
 
 export const getRoles = async (
   query: Partial<Role> & { page?: number; limit?: number }
@@ -13,19 +13,19 @@ export const getRoles = async (
   const limit = Math.max(Number(query.limit) || 10, 1);
   const offset = (page - 1) * limit;
 
-  const whereConditions = buildWhereClause(roles, query);
+  const whereConditions = buildWhereClause(roleTable, query);
   const whereClause = whereConditions.length
     ? and(...whereConditions)
     : undefined;
 
-  const data = await db.query.roles.findMany({
+  const data = await db.query.roleTable.findMany({
     limit,
     offset,
     where: whereClause,
   });
 
   const total =
-    (await db.select({ count: count() }).from(roles).where(whereClause))[0]
+    (await db.select({ count: count() }).from(roleTable).where(whereClause))[0]
       ?.count ?? 0;
 
   return {
@@ -38,26 +38,26 @@ export const getRoles = async (
   };
 };
 
-export const getRole = async (id: number) => {
-  const result = await db.query.roles.findFirst({
-    where: eq(roles.id, id),
+export const getRole = async (id: string) => {
+  const result = await db.query.roleTable.findFirst({
+    where: eq(roleTable.id, id),
   });
 
   return result;
 };
 
 export const createRole = async (payload: RoleInput) => {
-  return db.insert(roles).values(payload).returning();
+  return db.insert(roleTable).values(payload).returning();
 };
 
-export const updateRole = async (id: number, payload: RoleUpdate) => {
-  return db.update(roles).set(payload).where(eq(roles.id, id));
+export const updateRole = async (id: string, payload: RoleUpdate) => {
+  return db.update(roleTable).set(payload).where(eq(roleTable.id, id));
 };
 
-export const deleteRole = async (id: number) => {
-  return db.delete(roles).where(eq(roles.id, id));
+export const deleteRole = async (id: string) => {
+  return db.delete(roleTable).where(eq(roleTable.id, id));
 };
 
 export const deleteAllRoles = async () => {
-  return db.delete(roles);
+  return db.delete(roleTable);
 };

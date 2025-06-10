@@ -1,15 +1,18 @@
 import { pgTable } from 'drizzle-orm/pg-core';
 
-import { users } from './user';
+import { userTable } from './user';
 
-export const accounts = pgTable('accounts', (t) => ({
+export const accountTable = pgTable('accounts', (t) => ({
   id: t.varchar({ length: 36 }).primaryKey(),
   accountId: t.text().notNull(),
   providerId: t.text().notNull(),
   userId: t
     .varchar({ length: 36 })
     .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
+    .references(() => userTable.id, {
+      onUpdate: 'cascade',
+      onDelete: 'cascade',
+    }),
   accessToken: t.text(),
   refreshToken: t.text(),
   idToken: t.text(),

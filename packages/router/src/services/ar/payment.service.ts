@@ -1,10 +1,13 @@
 import { and, count, db, eq, inArray, sql } from '@repo/db';
-import { invoices, paymentInvoices, payments } from '@repo/db/model';
-import type { PaymentInput } from '@repo/db/schema';
+import {
+  invoiceTable,
+  paymentInvoiceTable,
+  paymentTable,
+} from '@repo/db/model';
 
-import { buildWhereClause } from '../../utils/whereClause';
+import { buildWhereClause } from '../../utils/where-clause';
 
-type Payment = typeof payments.$inferSelect;
+type Payment = typeof paymentTable.$inferSelect;
 
 export const generatePaymentNumber = async () => {
   const currentYear = new Date().getFullYear();
@@ -13,8 +16,10 @@ export const generatePaymentNumber = async () => {
     (
       await db
         .select({ count: count() })
-        .from(payments)
-        .where(sql`YEAR(${payments.createdAt}) = ${currentYear}`)
+        .from(paymentTable)
+        .where(
+          sql`EXTRACT(YEAR FROM ${paymentTable.createdAt}) = ${currentYear}`
+        )
     )[0]?.count ?? 0;
 
   const nextNumber = existingCount + 1;
@@ -22,17 +27,19 @@ export const generatePaymentNumber = async () => {
   return `PAY-${currentYear}-${String(nextNumber).padStart(3, '0')}`;
 };
 
-export const createPayment = async (payload: PaymentInput) => {
+export const createPayment = async (payload: any) => {
   const paymentNo = await generatePaymentNumber();
 
   // **Insert payments**
   const createdPayment = await db
-    .insert(payments)
+    .insert(paymentTable)
     .values({
       paymentNumber: paymentNo,
       date: payload.date,
       customerId: payload.customerId,
       paymentMethod: payload.paymentMethod,
+      bankAccount: payload.bankAccount ?? null,
+      bankNumber: payload.bankNumber ?? null,
       totalPaid: payload.totalPaid.toFixed(2),
     })
     .returning();
@@ -42,8 +49,8 @@ export const createPayment = async (payload: PaymentInput) => {
     throw new Error('Failed to create payment');
   }
 
-  await db.insert(paymentInvoices).values(
-    payload.items.map((item) => ({
+  await db.insert(paymentInvoiceTable).values(
+    payload.items.map((item: any) => ({
       paymentId: payment.id,
       invoiceId: item.invoiceId,
       amountPaid: item.amountPaid.toFixed(2),
@@ -53,24 +60,24 @@ export const createPayment = async (payload: PaymentInput) => {
   // **Get total paid for each invoice**
   const invoicePayments = await db
     .select({
-      invoiceId: paymentInvoices.invoiceId,
-      totalPaid: sql`SUM(${paymentInvoices.amountPaid})`.as('totalPaid'),
+      invoiceId: paymentInvoiceTable.invoiceId,
+      totalPaid: sql`SUM(${paymentInvoiceTable.amountPaid})`.as('totalPaid'),
     })
-    .from(paymentInvoices)
+    .from(paymentInvoiceTable)
     .where(
       inArray(
-        paymentInvoices.invoiceId,
-        payload.items.map((item) => item.invoiceId)
+        paymentInvoiceTable.invoiceId,
+        payload.items.map((item: any) => item.invoiceId)
       )
     )
-    .groupBy(paymentInvoices.invoiceId);
+    .groupBy(paymentInvoiceTable.invoiceId);
 
   // **Update status invoice**
   for (const { invoiceId, totalPaid } of invoicePayments) {
     const invoice = await db
-      .select({ grandTotal: invoices.grandTotal })
-      .from(invoices)
-      .where(eq(invoices.id, Number(invoiceId)))
+      .select({ grandTotal: invoiceTable.grandTotal })
+      .from(invoiceTable)
+      .where(eq(invoiceTable.id, invoiceId!))
       .then((res) => res[0]);
 
     // eslint-disable-next-line no-continue
@@ -78,16 +85,16 @@ export const createPayment = async (payload: PaymentInput) => {
 
     const status =
       Number(totalPaid) >= Number(invoice.grandTotal)
-        ? 'paid'
-        : 'partially paid';
+        ? 'PAID'
+        : 'PARTIALLY_PAID';
 
     await db
-      .update(invoices)
+      .update(invoiceTable)
       .set({ status: sql.raw(`'${status}'`) })
-      .where(eq(invoices.id, Number(invoiceId)));
+      .where(eq(invoiceTable.id, invoiceId!));
   }
 
-  return payment.id;
+  return payment;
 };
 
 export const getPayments = async (
@@ -97,12 +104,12 @@ export const getPayments = async (
   const limit = Math.max(Number(query.limit) || 10, 1);
   const offset = (page - 1) * limit;
 
-  const whereConditions = buildWhereClause(payments, query);
+  const whereConditions = buildWhereClause(paymentTable, query);
   const whereClause = whereConditions.length
     ? and(...whereConditions)
     : undefined;
 
-  const data = await db.query.payments.findMany({
+  const data = await db.query.paymentTable.findMany({
     limit,
     offset,
     where: whereClause,
@@ -116,7 +123,7 @@ export const getPayments = async (
   });
 
   const total = (
-    await db.select({ count: count() }).from(payments).where(whereClause)
+    await db.select({ count: count() }).from(paymentTable).where(whereClause)
   )[0]?.count;
 
   return {
@@ -129,9 +136,9 @@ export const getPayments = async (
   };
 };
 
-export const getPayment = async (id: number) => {
-  const result = await db.query.payments.findFirst({
-    where: eq(payments.id, id),
+export const getPayment = async (id: string) => {
+  const result = await db.query.paymentTable.findFirst({
+    where: eq(paymentTable.id, id),
     with: {
       customer: {
         columns: {
@@ -144,12 +151,12 @@ export const getPayment = async (id: number) => {
   return result;
 };
 
-export const updatePayment = async (_id: number, _payload: any) => {};
+export const updatePayment = async (_id: string, _payload: any) => {};
 
-export const deletePayment = async (id: number) => {
-  return db.delete(payments).where(eq(payments.id, id));
+export const deletePayment = async (id: string) => {
+  return db.delete(paymentTable).where(eq(paymentTable.id, id));
 };
 
 export const deleteAllPayments = async () => {
-  return db.delete(payments);
+  return db.delete(paymentTable);
 };

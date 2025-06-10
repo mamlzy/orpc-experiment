@@ -1,33 +1,34 @@
-import { createInsertSchema, createUpdateSchema } from 'drizzle-zod';
 import { z } from 'zod';
 
-import { users } from '../model';
-
-export const insertUserSchema = createInsertSchema(users, {
-  username: z.string(),
-  email: z.string().email(),
-  name: z.string().min(3),
-  photo: z.string().nullable().optional(),
-  companyId: z.preprocess((val) => Number(val), z.number().int().positive()),
+export const createUserSchema = z.object({
+  name: z.string().trim().min(3),
+  username: z.string().trim().min(3),
+  email: z.string().trim().email(),
+  password: z
+    .string()
+    .trim()
+    .min(8, { message: 'Password must be at least 8 characters long' })
+    .max(50, { message: 'Password cannot exceed 50 characters' }),
+  role: z.enum(['admin', 'user']),
 });
 
-export const updateUserSchema = createUpdateSchema(users, {
-  username: z.string().optional(),
-  password: z.string().min(6).optional(),
-  email: z.string().email().optional(),
-  name: z.string().min(3).optional(),
-  photo: z.string().nullable().optional(),
-  companyId: z
-    .preprocess((val) => Number(val), z.number().int().positive())
+export const updateUserSchema = createUserSchema.extend({
+  password: z
+    .string()
+    .trim()
+    .min(8, { message: 'Password must be at least 8 characters long' })
+    .max(50, { message: 'Password cannot exceed 50 characters' })
     .optional(),
+  image: z.string().trim().nullish(),
+  imageFile: z.instanceof(File).optional(),
 });
 
-export const loginUserSchema = z.object({
-  username: z.string(),
-  password: z.string().min(6),
+export const getAllUsersQuerySchema = z.object({
+  page: z.coerce.number().optional(),
+  limit: z.coerce.number().optional(),
+  name: z.string().trim().optional(),
 });
 
-export type User = typeof users.$inferSelect;
-export type UserInput = z.infer<typeof insertUserSchema>;
-export type UserUpdate = z.infer<typeof updateUserSchema>;
-export type LoginUser = z.infer<typeof loginUserSchema>;
+export type CreateUserSchema = z.infer<typeof createUserSchema>;
+export type UpdateUserSchema = z.infer<typeof updateUserSchema>;
+export type GetAllUsersQuerySchema = z.infer<typeof getAllUsersQuerySchema>;

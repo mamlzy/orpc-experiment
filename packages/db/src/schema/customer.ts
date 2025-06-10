@@ -1,54 +1,34 @@
-import { createInsertSchema, createUpdateSchema } from 'drizzle-zod';
 import { z } from 'zod';
 
 import {
-  businessEntityEnum,
-  customers,
+  customerBusinessEntityEnum,
   customerStatusEnum,
   customerTypeEnum,
 } from '../model/customer';
 
-const nullableString = z.string().nullable().optional();
-
-export const insertCustomerSchema = createInsertSchema(customers, {
-  businessEntity: z.enum(businessEntityEnum.enumValues),
+export const createCustomerSchema = z.strictObject({
+  businessEntity: z.enum(customerBusinessEntityEnum.enumValues),
   customerType: z.enum(customerTypeEnum.enumValues),
-  name: z.string().min(3),
-  pareto: nullableString,
-  address: z.string().nullable().optional(),
-  telephone: nullableString,
-  email: z.string().nullable().optional(),
-  website: nullableString,
-  country: nullableString,
-  sector: nullableString,
-  latitude: nullableString,
-  longitude: nullableString,
-  logo: nullableString,
-  companyId: z.preprocess((val) => Number(val), z.number().int().positive()),
-  marketingId: nullableString,
-  status: z.enum(customerStatusEnum.enumValues).default('Bank Data'),
+  name: z.string().trim().min(3),
+  pareto: z.string().trim().optional(),
+  address: z.string().trim().optional(),
+  telephone: z.string().trim().optional(),
+  email: z.string().trim().email().optional(),
+  website: z.string().trim().optional(),
+  country: z.string().trim().optional(),
+  sector: z.string().trim().optional(),
+  latitude: z.string().trim().optional(),
+  longitude: z.string().trim().optional(),
+  logo: z.string().trim().optional(),
+  companyId: z.string().trim().nonempty(),
+  marketingId: z.string().trim().nullable(),
+  status: z.enum(customerStatusEnum.enumValues).default('BANK_DATA'),
+  description: z.string().trim().optional(),
 });
 
-export const updateCustomerSchema = createUpdateSchema(customers, {
-  businessEntity: z.enum(businessEntityEnum.enumValues).optional(),
-  customerType: z.enum(customerTypeEnum.enumValues).optional(),
-  name: z.string().min(3).optional(),
-  pareto: nullableString,
-  address: z.string().min(3).optional(),
-  telephone: nullableString,
-  email: z.string().email().nullable().optional(),
-  website: nullableString,
-  country: nullableString,
-  sector: nullableString,
-  latitude: nullableString,
-  longitude: nullableString,
-  logo: nullableString,
-  companyId: z
-    .preprocess((val) => Number(val), z.number().int().positive())
-    .optional(),
-  marketingId: nullableString,
-  status: z.enum(customerStatusEnum.enumValues).optional(),
-});
+export const createCustomersSchema = createCustomerSchema.array();
 
-export type CustomerInput = z.infer<typeof insertCustomerSchema>;
-export type CustomerUpdate = z.infer<typeof updateCustomerSchema>;
+export const updateCustomerSchema = createCustomerSchema;
+
+export type CreateCustomerSchema = z.infer<typeof createCustomerSchema>;
+export type UpdateCustomerSchema = z.infer<typeof updateCustomerSchema>;

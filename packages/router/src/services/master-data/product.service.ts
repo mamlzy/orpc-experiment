@@ -1,17 +1,18 @@
-import { and, count, db, eq } from '@repo/db';
-import { products } from '@repo/db/model';
+import { db, eq } from '@repo/db';
+import { productTable } from '@repo/db/model';
 import {
-  insertProductSchema,
-  type ProductInput,
-  type ProductUpdate,
+  createProductSchema,
+  type CreateProductSchema,
+  type UpdateProductSchema,
 } from '@repo/db/schema';
 
-import { buildWhereClause } from '../../utils/whereClause';
+export const createProduct = async (payload: CreateProductSchema) => {
+  const createdProducts = await db
+    .insert(productTable)
+    .values(payload)
+    .returning();
 
-type Product = typeof products.$inferSelect;
-
-export const createProduct = async (payload: ProductInput) => {
-  return db.insert(products).values(payload).returning();
+  return createdProducts[0];
 };
 
 export const bulkInsertProducts = async (payload: any) => {
@@ -30,58 +31,19 @@ export const bulkInsertProducts = async (payload: any) => {
         ...cleanedRow,
       };
 
-      toInsert.push(insertProductSchema.parse(finalRow));
+      toInsert.push(createProductSchema.parse(finalRow));
     } catch (error) {
       console.log('error', row, error);
     }
   });
 
-  const insert = await db.insert(products).values(toInsert);
+  const insert = await db.insert(productTable).values(toInsert);
   return insert;
 };
 
-export const getProducts = async (
-  query: Partial<Product> & { page?: number; limit?: number }
-) => {
-  const page = Math.max(Number(query.page) || 1, 1);
-  const limit = Math.max(Number(query.limit) || 10, 1);
-  const offset = (page - 1) * limit;
-
-  const whereConditions = buildWhereClause(products, query);
-  const whereClause = whereConditions.length
-    ? and(...whereConditions)
-    : undefined;
-
-  const data = await db.query.products.findMany({
-    limit,
-    offset,
-    where: whereClause,
-    with: {
-      service: {
-        columns: {
-          name: true,
-        },
-      },
-    },
-  });
-
-  const total =
-    (await db.select({ count: count() }).from(products).where(whereClause))[0]
-      ?.count ?? 0;
-
-  return {
-    data,
-    pagination: {
-      total_page: Math.ceil(Number(total) / limit),
-      total: Number(total),
-      current_page: page,
-    },
-  };
-};
-
-export const getProduct = async (id: number) => {
-  const result = await db.query.products.findFirst({
-    where: eq(products.id, id),
+export const getProduct = async (id: string) => {
+  const result = await db.query.productTable.findFirst({
+    where: eq(productTable.id, id),
     with: {
       service: {
         columns: {
@@ -94,14 +56,24 @@ export const getProduct = async (id: number) => {
   return result;
 };
 
-export const updateProduct = async (id: number, payload: ProductUpdate) => {
-  return db.update(products).set(payload).where(eq(products.id, id));
+export const updateProductById = async ({
+  id,
+  payload,
+}: {
+  id: string;
+  payload: UpdateProductSchema;
+}) => {
+  return db
+    .update(productTable)
+    .set(payload)
+    .where(eq(productTable.id, id))
+    .returning();
 };
 
-export const deleteProduct = async (id: number) => {
-  return db.delete(products).where(eq(products.id, id));
+export const deleteProduct = async (id: string) => {
+  return db.delete(productTable).where(eq(productTable.id, id)).returning();
 };
 
 export const deleteAllProducts = async () => {
-  return db.delete(products);
+  return db.delete(productTable);
 };

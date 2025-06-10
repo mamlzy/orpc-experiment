@@ -1,27 +1,28 @@
-import { and, count, db, eq } from '@repo/db';
-import { users } from '@repo/db/model';
-import type { UserUpdate } from '@repo/db/schema';
+import { and, count, db, desc, eq, ilike, isNull, SQL } from '@repo/db';
+import { userTable } from '@repo/db/model';
+import type { GetAllUsersQuerySchema, UpdateUserSchema } from '@repo/db/schema';
 
-import { buildWhereClause } from '../../utils/whereClause';
+import { createPagination } from '../../lib/utils';
 
-type User = typeof users.$inferSelect;
-
-export const getUsers = async (
-  query: Partial<User> & { page?: number; limit?: number }
-) => {
-  const page = Math.max(Number(query.page) || 1, 1);
-  const limit = Math.max(Number(query.limit) || 10, 1);
+export const getUsers = async (query?: GetAllUsersQuerySchema) => {
+  const page = Math.max(Number(query?.page) || 1, 1);
+  const limit = Math.max(Number(query?.limit) || 10, 1);
   const offset = (page - 1) * limit;
 
-  const whereConditions = buildWhereClause(users, query);
-  const whereClause = whereConditions.length
-    ? and(...whereConditions)
-    : undefined;
+  const where: SQL[] = [isNull(userTable.deletedAt)];
 
-  const data = await db.query.users.findMany({
-    limit,
-    offset,
-    where: whereClause,
+  if (query?.name) {
+    where.push(ilike(userTable.name, `%${query.name}%`));
+  }
+
+  const data = await db.query.userTable.findMany({
+    columns: {
+      id: true,
+      name: true,
+      email: true,
+      companyId: true,
+    },
+    where: and(...where),
     with: {
       company: {
         columns: {
@@ -29,25 +30,34 @@ export const getUsers = async (
         },
       },
     },
+    limit,
+    offset,
+    orderBy: [desc(userTable.createdAt)],
   });
 
-  const total =
-    (await db.select({ count: count() }).from(users).where(whereClause))[0]
-      ?.count ?? 0;
+  const totalCount =
+    (
+      await db
+        .select({ count: count() })
+        .from(userTable)
+        .where(and(...where))
+    )[0]?.count ?? 0;
+
+  const pagination = createPagination({
+    page,
+    limit,
+    totalCount,
+  });
 
   return {
     data,
-    pagination: {
-      total_page: Math.ceil(Number(total) / limit),
-      total: Number(total),
-      current_page: page,
-    },
+    pagination,
   };
 };
 
 export const getUser = async (id: string) => {
-  const result = await db.query.users.findFirst({
-    where: eq(users.id, id),
+  const result = await db.query.userTable.findFirst({
+    where: eq(userTable.id, id),
     with: {
       company: {
         columns: {
@@ -60,17 +70,29 @@ export const getUser = async (id: string) => {
   return result;
 };
 
-export const updateUser = async (id: string, payload: UserUpdate) => {
-  // if (payload.password) {
-  //   payload.password = await bcrypt.hash(payload.password, 12);
-  // }
-  return db.update(users).set(payload).where(eq(users.id, id));
+export const updateUserById = async ({
+  id,
+  payload,
+  tx,
+}: {
+  id: string;
+  payload: UpdateUserSchema;
+  tx?: Parameters<Parameters<typeof db.transaction>[0]>[0];
+}) => {
+  const dbInstance = tx || db;
+  return (
+    await dbInstance
+      .update(userTable)
+      .set(payload)
+      .where(eq(userTable.id, id))
+      .returning()
+  )[0];
 };
 
 export const deleteUser = async (id: string) => {
-  return db.delete(users).where(eq(users.id, id));
+  return db.delete(userTable).where(eq(userTable.id, id));
 };
 
 export const deleteAllUsers = async () => {
-  return db.delete(users);
+  return db.delete(userTable);
 };

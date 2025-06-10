@@ -1,14 +1,10 @@
-import { and, count, db, eq } from '@repo/db';
-import { customers } from '@repo/db/model';
+import { db, eq } from '@repo/db';
+import { customerProductTable, customerTable } from '@repo/db/model';
 import {
-  insertCustomerSchema,
-  type CustomerInput,
-  type CustomerUpdate,
+  createCustomerSchema,
+  type CreateCustomerSchema,
+  type UpdateCustomerSchema,
 } from '@repo/db/schema';
-
-import { buildWhereClause } from '../../utils/whereClause';
-
-type Customer = typeof customers.$inferSelect;
 
 export const bulkInsertCustomers = async (payload: any) => {
   const toInsert: any = [];
@@ -26,63 +22,20 @@ export const bulkInsertCustomers = async (payload: any) => {
         ...cleanedRow,
       };
 
-      toInsert.push(insertCustomerSchema.parse(finalRow));
+      toInsert.push(createCustomerSchema.parse(finalRow));
     } catch (error) {
       console.log('error', row, error);
     }
   });
 
   console.log(toInsert);
-  const insert = await db.insert(customers).values(toInsert).returning();
+  const insert = await db.insert(customerTable).values(toInsert).returning();
   return insert;
 };
 
-export const getCustomers = async (
-  query: Partial<Customer> & { page?: number; limit?: number }
-) => {
-  const page = Math.max(Number(query.page) || 1, 1);
-  const limit = Math.max(Number(query.limit) || 10, 1);
-  const offset = (page - 1) * limit;
-
-  // const whereConditions = buildWhereClause(customers, query);
-  // const whereClause = whereConditions.length
-  //   ? and(...whereConditions)
-  //   : undefined;
-
-  const data = await db.query.customers.findMany({
-    limit,
-    offset,
-    // where: whereClause,
-    with: {
-      company: {
-        columns: {
-          companyName: true,
-        },
-      },
-      marketing: {
-        columns: {
-          name: true,
-        },
-      },
-    },
-  });
-
-  const total =
-    (await db.select({ count: count() }).from(customers))[0]?.count ?? 0;
-
-  return {
-    data,
-    pagination: {
-      total_page: Math.ceil(Number(total) / limit),
-      total: Number(total),
-      current_page: page,
-    },
-  };
-};
-
-export const getCustomer = async (id: number) => {
-  const result = await db.query.customers.findFirst({
-    where: eq(customers.id, id),
+export const getCustomer = async (id: string) => {
+  const result = await db.query.customerTable.findFirst({
+    where: eq(customerTable.id, id),
     with: {
       company: {
         columns: {
@@ -100,18 +53,38 @@ export const getCustomer = async (id: number) => {
   return result;
 };
 
-export const createCustomer = async (payload: CustomerInput) => {
-  return db.insert(customers).values(payload).returning();
+export const createCustomer = async (payload: CreateCustomerSchema) => {
+  return db.insert(customerTable).values(payload).returning();
 };
 
-export const updateCustomer = async (id: number, payload: CustomerUpdate) => {
-  return db.update(customers).set(payload).where(eq(customers.id, id));
+export const updateCustomer = async ({
+  id,
+  payload,
+}: {
+  id: string;
+  payload: UpdateCustomerSchema;
+}) => {
+  return db
+    .update(customerTable)
+    .set(payload)
+    .where(eq(customerTable.id, id))
+    .returning();
 };
 
-export const deleteCustomer = async (id: number) => {
-  return db.delete(customers).where(eq(customers.id, id));
+export const deleteCustomer = async (id: string) => {
+  return db.transaction(async (tx) => {
+    // delete all customer products
+    await tx
+      .delete(customerProductTable)
+      .where(eq(customerProductTable.customerId, id));
+
+    // delete customer
+    await tx.delete(customerTable).where(eq(customerTable.id, id));
+
+    return true;
+  });
 };
 
 export const deleteAllCustomers = async () => {
-  return db.delete(customers);
+  return db.delete(customerTable);
 };

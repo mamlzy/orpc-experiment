@@ -1,99 +1,73 @@
-'use client';
-
-import { useState } from 'react';
-import Image, { type ImageProps } from 'next/image';
-import { useMutation, useQuery } from '@tanstack/react-query';
-
-import { orpc } from '@/lib/orpc';
-
-import styles from './page.module.css';
-
-type Props = Omit<ImageProps, 'src'> & {
-  srcLight: string;
-  srcDark: string;
-};
-
-const ThemeImage = (props: Props) => {
-  const { srcLight, srcDark, ...rest } = props;
-
-  return (
-    <>
-      <Image {...rest} src={srcLight} className='imgLight' />
-      <Image {...rest} src={srcDark} className='imgDark' />
-    </>
-  );
-};
+import Image from 'next/image';
 
 export default function Home() {
-  const [file, setFile] = useState<File | null>(null);
-
-  const { data } = useQuery(orpc.masterData.customers.all.queryOptions());
-
-  const createUserMutation = useMutation(orpc.users.create.mutationOptions());
-
-  console.log('data =>', data);
-
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <ThemeImage
-          className={styles.logo}
-          srcLight='turborepo-dark.svg'
-          srcDark='turborepo-light.svg'
-          alt='Turborepo logo'
+    <div className='grid min-h-screen grid-rows-[20px_1fr_20px] items-center justify-items-center gap-16 p-8 pb-20 font-[family-name:var(--font-geist-sans)] sm:p-20'>
+      <main className='row-start-2 flex flex-col items-center gap-8 sm:items-start'>
+        <Image
+          className='dark:invert'
+          src='/next.svg'
+          alt='Next.js logo'
           width={180}
           height={38}
           priority
         />
-        <ol>
-          <li>
-            Get started by editing <code>apps/web/app/page.tsx</code>
+        <ol className='list-inside list-decimal text-center font-[family-name:var(--font-geist-mono)] text-sm sm:text-left'>
+          <li className='mb-2'>
+            Get started by editing{' '}
+            <code className='rounded bg-black/[.05] px-1 py-0.5 font-semibold dark:bg-white/[.06]'>
+              src/app/page.tsx
+            </code>
+            .
           </li>
           <li>Save and see your changes instantly.</li>
         </ol>
 
-        <input
-          type='file'
-          onChange={(e) => {
-            setFile(e.target.files?.[0] || null);
-          }}
-        />
-
-        <div className={styles.ctas}>
-          <button
-            type='button'
-            className={styles.primary}
-            onClick={() => {
-              if (!file) return;
-
-              createUserMutation.mutate({ name: 'Ahok', file });
-            }}
+        <div className='flex flex-col items-center gap-4 sm:flex-row'>
+          <a
+            className='bg-foreground text-background flex h-10 items-center justify-center gap-2 rounded-full border border-solid border-transparent px-4 text-sm transition-colors hover:bg-[#383838] sm:h-12 sm:px-5 sm:text-base dark:hover:bg-[#ccc]'
+            href='https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app'
+            target='_blank'
+            rel='noopener noreferrer'
           >
             <Image
-              className={styles.logo}
+              className='dark:invert'
               src='/vercel.svg'
               alt='Vercel logomark'
               width={20}
               height={20}
             />
             Deploy now
-          </button>
+          </a>
           <a
-            href='https://turborepo.com/docs?utm_source'
+            className='flex h-10 items-center justify-center rounded-full border border-solid border-black/[.08] px-4 text-sm transition-colors hover:border-transparent hover:bg-[#f2f2f2] sm:h-12 sm:min-w-44 sm:px-5 sm:text-base dark:border-white/[.145] dark:hover:bg-[#1a1a1a]'
+            href='https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app'
             target='_blank'
             rel='noopener noreferrer'
-            className={styles.secondary}
           >
             Read our docs
           </a>
         </div>
-        <button type='button' className={styles.secondary}>
-          Open alert
-        </button>
       </main>
-      <footer className={styles.footer}>
+      <footer className='row-start-3 flex flex-wrap items-center justify-center gap-6'>
         <a
-          href='https://vercel.com/templates?search=turborepo&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app'
+          className='flex items-center gap-2 hover:underline hover:underline-offset-4'
+          href='https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app'
+          target='_blank'
+          rel='noopener noreferrer'
+        >
+          <Image
+            aria-hidden
+            src='/file.svg'
+            alt='File icon'
+            width={16}
+            height={16}
+          />
+          Learn
+        </a>
+        <a
+          className='flex items-center gap-2 hover:underline hover:underline-offset-4'
+          href='https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app'
           target='_blank'
           rel='noopener noreferrer'
         >
@@ -107,7 +81,8 @@ export default function Home() {
           Examples
         </a>
         <a
-          href='https://turborepo.com?utm_source=create-turbo'
+          className='flex items-center gap-2 hover:underline hover:underline-offset-4'
+          href='https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app'
           target='_blank'
           rel='noopener noreferrer'
         >
@@ -118,7 +93,7 @@ export default function Home() {
             width={16}
             height={16}
           />
-          Go to turborepo.com →
+          Go to nextjs.org →
         </a>
       </footer>
     </div>

@@ -1,134 +1,270 @@
-import * as fs from 'fs/promises';
-import type { Context } from 'hono';
+import { ORPCError, os } from '@orpc/server';
+import { z } from 'zod';
 
-import { invoices } from '@repo/db/model';
-import { insertInvoiceSchema, updateInvoiceSchema } from '@repo/db/schema';
+import {
+  and,
+  count,
+  db,
+  eq,
+  getTableColumns,
+  ilike,
+  inArray,
+  isNull,
+  SQL,
+} from '@repo/db';
+import { customerTable, invoiceStatusEnum, invoiceTable } from '@repo/db/model';
+import {
+  createInvoiceSchema,
+  createInvoicesSchema,
+  updateInvoiceSchema,
+} from '@repo/db/schema';
 
-import { errorResponse, successResponse } from '../../helpers/response';
+import { successResponseNew } from '../../helpers/response';
+import { createPagination } from '../../lib/utils';
 import * as service from '../../services/ar/invoice.service';
-import { bulkInsert } from '../../utils/bulkInsert';
-import { parseRequest } from '../../utils/parseRequest';
 
-export const createInvoice = async (ctx: Context) => {
-  try {
-    const body = await parseRequest(ctx);
-    const payload = insertInvoiceSchema.parse(body);
+export const createInvoice = os
+  .route({ method: 'POST', path: '/ar/invoices' })
+  .input(createInvoiceSchema)
+  .handler(async ({ input }) => {
+    try {
+      const createdInvoice = await service.createInvoice(input);
 
-    const result = await service.createInvoice(payload);
-    return ctx.json(successResponse(result, 'Invoice created successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to create Invoice'), 500);
-  }
-};
+      if (!createdInvoice) {
+        throw new ORPCError('BAD_REQUEST', {
+          message: 'Failed to create invoice',
+        });
+      }
 
-export const bulkInsertInvoices = async (c: Context) => {
-  try {
-    const filePath = c.get('filePath');
-    if (!filePath) {
-      return c.json({ error: 'File not found' }, 400);
+      return successResponseNew({
+        message: 'Invoice created successfully',
+        data: createdInvoice,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to create invoice',
+      });
     }
+  });
 
-    const file = new File([await fs.readFile(filePath.path)], filePath.name);
-    const result = await bulkInsert(file, {
-      table: invoices,
-      schema: insertInvoiceSchema,
-    });
+export const createInvoices = os
+  .route({ method: 'POST', path: '/ar/invoices/many' })
+  .input(createInvoicesSchema)
+  .handler(async ({ input }) => {
+    try {
+      const createdInvoices = await db
+        .insert(invoiceTable)
+        .values(input)
+        .returning();
 
-    return c.json(result);
-  } catch (error) {
-    return c.json({ error: 'Bulk insert failed' }, 500);
-  }
-};
+      if (createdInvoices.length < 1) {
+        throw new ORPCError('BAD_REQUEST', {
+          message: 'Failed to create invoices',
+        });
+      }
 
-export const getInvoices = async (ctx: Context) => {
-  try {
-    const query = ctx.req.query();
-    const result = await service.getInvoices(query);
+      return successResponseNew({
+        message: 'Invoices created successfully',
+        data: createdInvoices,
+      });
+    } catch (error) {
+      console.log('error', error);
 
-    return ctx.json(
-      successResponse(
-        result.data,
-        'Invoices fetched successfully',
-        result.pagination
-      )
-    );
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to fetch Invoices'), 500);
-  }
-};
+      if (error instanceof ORPCError) {
+        throw error;
+      }
 
-export const getInvoice = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
-    const result = await service.getInvoice(id);
-
-    if (!result) {
-      return ctx.json(errorResponse('Invoice not found', '404'));
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to create invoices',
+      });
     }
+  });
 
-    return ctx.json(successResponse(result, 'Invoice fetched successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to fetch Invoice'), 500);
-  }
-};
+export const getInvoices = os
+  .route({ method: 'GET', path: '/ar/invoices' })
+  .input(
+    z
+      .object({
+        page: z.coerce.number().optional(),
+        limit: z.coerce.number().optional(),
+        invoiceNo: z.string().optional(),
+        customerId: z.string().optional(),
+        status: z.array(z.enum(invoiceStatusEnum.enumValues)).optional(),
+      })
+      .optional()
+  )
+  .handler(async ({ input }) => {
+    try {
+      const page = Math.max(Number(input?.page) || 1, 1);
+      const limit = Math.max(Number(input?.limit) || 10, 1);
+      const offset = (page - 1) * limit;
 
-export const updateInvoice = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
+      const where: SQL[] = [isNull(invoiceTable.deletedAt)];
 
-    const body = await parseRequest(ctx);
-    const payload = updateInvoiceSchema.parse(body);
+      if (input?.invoiceNo) {
+        where.push(ilike(invoiceTable.invoiceNo, `%${input.invoiceNo}%`));
+      }
 
-    const result = await service.updateInvoice(id, payload);
+      if (input?.customerId) {
+        where.push(ilike(invoiceTable.customerId, `%${input.customerId}%`));
+      }
 
-    return ctx.json(successResponse(result, 'Invoice updated successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to update Invoice'), 500);
-  }
-};
+      if (input?.status?.length) {
+        where.push(inArray(invoiceTable.status, input.status));
+      }
 
-export const deleteInvoice = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
-    const result = await service.deleteInvoice(id);
+      const data = await db
+        .select({
+          ...getTableColumns(invoiceTable),
+          customerName: customerTable.name,
+        })
+        .from(invoiceTable)
+        .leftJoin(customerTable, eq(invoiceTable.customerId, customerTable.id))
+        .limit(limit)
+        .offset(offset)
+        .groupBy(invoiceTable.id, customerTable.name)
+        .where(and(...where));
 
-    return ctx.json(successResponse(result, 'Invoice deleted successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to delete Invoice'), 500);
-  }
-};
+      const totalCount =
+        (
+          await db
+            .select({ count: count() })
+            .from(invoiceTable)
+            .where(and(...where))
+        )[0]?.count ?? 0;
 
-export const deleteAllInvoices = async (ctx: Context) => {
-  try {
-    const result = await service.deleteAllInvoices();
-    return ctx.json(successResponse(result, 'Invoices deleted successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to delete Invoices'), 500);
-  }
-};
+      const pagination = createPagination({
+        page,
+        limit,
+        totalCount,
+      });
 
-export const getOutstandingInvoiceByNumber = async (ctx: Context) => {
-  try {
-    const invoiceNo = ctx.req.param('invoiceNo');
-    const result = await service.getOutstandingInvoiceByNumber(invoiceNo);
+      return successResponseNew({
+        message: 'Invoices fetched successfully',
+        data,
+        pagination,
+      });
+    } catch (error) {
+      console.log('error', error);
 
-    if (result.status === 'not_found') {
-      return ctx.json(errorResponse(result.message, '404'), 404);
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch invoices',
+      });
     }
+  });
 
-    if (result.status === 'fully_paid') {
-      return ctx.json(successResponse(null, result.message));
+export const getInvoice = os
+  .route({ method: 'GET', path: '/ar/invoices/{id}' })
+  .input(
+    z.object({
+      id: z.string(),
+    })
+  )
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.getInvoice(input.id);
+
+      if (!result) {
+        throw new ORPCError('NOT_FOUND', {
+          message: 'Invoice not found',
+        });
+      }
+
+      return successResponseNew({
+        message: 'Invoice fetched successfully',
+        data: result,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch invoice',
+      });
     }
+  });
 
-    return ctx.json(successResponse(result, 'Invoice fetched successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse('Failed to fetch invoice', '500'), 500);
-  }
-};
+export const updateInvoice = os
+  .route({ method: 'PUT', path: '/ar/invoices/{id}' })
+  .input(z.object({ id: z.string() }).merge(updateInvoiceSchema))
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.updateInvoice(input.id, input);
+      return successResponseNew({
+        message: 'Invoice updated successfully',
+        data: { result },
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to update invoice',
+      });
+    }
+  });
+
+export const deleteInvoice = os
+  .route({ method: 'DELETE', path: '/ar/invoices/{id}' })
+  .input(
+    z.object({
+      id: z.string(),
+    })
+  )
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.deleteInvoice(input.id);
+      return successResponseNew({
+        message: 'Invoice deleted successfully',
+        data: { result },
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to delete invoice',
+      });
+    }
+  });
+
+export const deleteAllInvoices = os
+  .route({ method: 'DELETE', path: '/ar/invoices' })
+  .handler(async () => {
+    try {
+      const result = await service.deleteAllInvoices();
+      return successResponseNew({
+        message: 'Invoices deleted successfully',
+        data: { result },
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to delete invoices',
+      });
+    }
+  });

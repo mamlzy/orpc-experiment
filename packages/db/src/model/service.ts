@@ -1,16 +1,17 @@
+import { createId } from '@paralleldrive/cuid2';
 import { relations } from 'drizzle-orm';
-import { pgTable, serial, varchar } from 'drizzle-orm/pg-core';
+import { pgTable, varchar } from 'drizzle-orm/pg-core';
 
 import { timestamps } from '../lib/columns.helper';
-import { products } from './product';
+import { productTable } from './product';
 
-export const services = pgTable('services', {
-  id: serial().primaryKey(),
+export const serviceTable = pgTable('services', {
+  id: varchar({ length: 255 }).primaryKey().$defaultFn(createId),
   name: varchar({ length: 255 }).notNull(),
   description: varchar({ length: 255 }).notNull(),
   ...timestamps,
 });
 
-export const servicesRelations = relations(services, ({ many }) => ({
-  product: many(products),
+export const serviceTableRelations = relations(serviceTable, ({ many }) => ({
+  product: many(productTable),
 }));

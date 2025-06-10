@@ -1,8 +1,8 @@
 import { createInsertSchema, createUpdateSchema } from 'drizzle-zod';
 
-import { transactionItems } from '../model';
+import { transactionItemTable } from '../model';
 
 export const transactionItemsInsertSchema =
-  createInsertSchema(transactionItems);
+  createInsertSchema(transactionItemTable);
 export const transactionItemsUpdateSchema =
-  createUpdateSchema(transactionItems);
+  createUpdateSchema(transactionItemTable);

@@ -1,0 +1,42 @@
+{
+  "name": "@repo/auth",
+  "version": "1.0.0",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "require": "./dist/index.js",
+      "import": "./dist/index.mjs"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "require": "./dist/server/index.js",
+      "import": "./dist/server/index.mjs"
+    },
+    "./client": {
+      "types": "./src/client/index.ts",
+      "require": "./dist/client/index.js",
+      "import": "./dist/client/index.mjs"
+    }
+  },
+  "scripts": {
+    "dev": "dotenv-run -e development -- tsdown --watch",
+    "build": "dotenv-run -e production -- tsdown",
+    "eslint": "eslint src",
+    "eslint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit --watch",
+    "clean": "rimraf .turbo node_modules dist"
+  },
+  "dependencies": {
+    "@repo/shared": "workspace:*",
+    "better-auth": "^1.2.8"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@repo/db": "workspace:*",
+    "@types/node": "^22.15.3",
+    "eslint": "^8",
+    "rimraf": "^6.0.1",
+    "tsdown": "^0.11.12"
+  }
+}

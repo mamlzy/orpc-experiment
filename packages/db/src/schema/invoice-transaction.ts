@@ -1,12 +1,14 @@
 import { createInsertSchema, createUpdateSchema } from 'drizzle-zod';
 import { z } from 'zod';
 
-import { invoiceTransactions } from '../model/invoice-transaction';
+import { invoiceTransactionTable } from '../model/invoice-transaction';
 
-export const insertInvoiceTransactionSchema =
-  createInsertSchema(invoiceTransactions);
-export const updateInvoiceTransactionSchema =
-  createUpdateSchema(invoiceTransactions);
+export const insertInvoiceTransactionSchema = createInsertSchema(
+  invoiceTransactionTable
+);
+export const updateInvoiceTransactionSchema = createUpdateSchema(
+  invoiceTransactionTable
+);
 
 export type InvoiceTransactionInput = z.infer<
   typeof insertInvoiceTransactionSchema

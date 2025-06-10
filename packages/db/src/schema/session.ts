@@ -1,16 +1,16 @@
 import { createInsertSchema, createUpdateSchema } from 'drizzle-zod';
 import { z } from 'zod';
 
-import { sessions } from '../model';
+import { sessionTable } from '../model';
 
-export const insertSessionSchema = createInsertSchema(sessions, {
+export const insertSessionSchema = createInsertSchema(sessionTable, {
   token: z.string(),
   ipAddress: z.string().min(6),
   userAgent: z.string().min(3),
   userId: z.number(),
 });
 
-export const updateSessionSchema = createUpdateSchema(sessions, {
+export const updateSessionSchema = createUpdateSchema(sessionTable, {
   token: z.string().optional(),
   ipAddress: z.string().min(6).optional(),
   userAgent: z.string().min(3).optional(),

@@ -1,122 +1,253 @@
-import * as fs from 'fs/promises';
+import { ORPCError, os } from '@orpc/server';
 import type { Context } from 'hono';
+import { z } from 'zod';
 
-import { products } from '@repo/db/model';
-import { insertProductSchema, updateProductSchema } from '@repo/db/schema';
+import { and, count, db, desc, ilike, isNull, SQL } from '@repo/db';
+import { productTable } from '@repo/db/model';
+import {
+  createProductSchema,
+  createProductsSchema,
+  updateProductSchema,
+} from '@repo/db/schema';
 
-import { errorResponse, successResponse } from '../../helpers/response';
+import {
+  errorResponse,
+  successResponse,
+  successResponseNew,
+} from '../../helpers/response';
+import { createPagination } from '../../lib/utils';
 import * as service from '../../services/master-data/product.service';
-import { bulkInsert } from '../../utils/bulkInsert';
-import { moveToFailed } from '../../utils/fileUpload';
-import { parseRequest } from '../../utils/parseRequest';
 
-export const createProduct = async (ctx: Context) => {
-  try {
-    const body = await parseRequest(ctx);
-    const filePath = ctx.get('filePath');
-    if (filePath) {
-      body.logo = filePath.name;
+export const createProduct = os
+  .route({ method: 'POST', path: '/master-data/products' })
+  .input(createProductSchema)
+  .handler(async ({ input }) => {
+    try {
+      const createdProduct = (
+        await db.insert(productTable).values(input).returning()
+      )[0];
+
+      if (!createdProduct) {
+        throw new ORPCError('BAD_REQUEST', {
+          message: 'Failed to create product',
+        });
+      }
+
+      return successResponseNew({
+        data: createdProduct,
+        message: 'Product created successfully',
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to create product',
+      });
     }
-    const payload = insertProductSchema.parse(body);
+  });
 
-    const result = await service.createProduct(payload);
-    return ctx.json(successResponse(result, 'Product created successfully'));
-  } catch (error) {
-    console.log('error', error);
-    if (ctx.get('filePath')) {
-      await moveToFailed(ctx.get('filePath').path);
+export const createProducts = os
+  .route({ method: 'POST', path: '/master-data/products/many' })
+  .input(createProductsSchema)
+  .handler(async ({ input }) => {
+    try {
+      const createdProduct = await db
+        .insert(productTable)
+        .values(input)
+        .returning();
+
+      if (createdProduct.length < 1) {
+        throw new ORPCError('BAD_REQUEST', {
+          message: 'Failed to create products',
+        });
+      }
+
+      return successResponseNew({
+        data: createdProduct,
+        message: 'Product created successfully',
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to create product',
+      });
     }
-    return ctx.json(errorResponse(error, 'Failed to create product'), 500);
-  }
-};
+  });
 
-export const bulkInsertProducts = async (c: Context) => {
-  try {
-    const filePath = c.get('filePath');
-    if (!filePath) {
-      return c.json({ error: 'File not found' }, 400);
+export const getProducts = os
+  .route({ method: 'GET', path: '/master-data/products' })
+  .input(
+    z
+      .object({
+        page: z.coerce.number().optional().default(1),
+        limit: z.coerce.number().optional().default(10),
+        name: z.string().optional(),
+      })
+      .optional()
+  )
+  .handler(async ({ input }) => {
+    try {
+      const page = Math.max(Number(input?.page) || 1, 1);
+      const limit = Math.max(Number(input?.limit) || 10, 1);
+      const offset = (page - 1) * limit;
+
+      const where: SQL[] = [isNull(productTable.deletedAt)];
+
+      if (input?.name) {
+        where.push(ilike(productTable.name, `%${input.name}%`));
+      }
+
+      const data = await db.query.productTable.findMany({
+        limit,
+        offset,
+        where: and(...where),
+        with: {
+          service: {
+            columns: {
+              name: true,
+            },
+          },
+        },
+        orderBy: [desc(productTable.createdAt)],
+      });
+
+      const totalCount =
+        (
+          await db
+            .select({ count: count() })
+            .from(productTable)
+            .where(and(...where))
+        )[0]?.count ?? 0;
+
+      const pagination = createPagination({
+        totalCount,
+        page,
+        limit,
+      });
+
+      return successResponseNew({
+        message: 'Products fetched successfully',
+        data,
+        pagination,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch products',
+      });
     }
+  });
 
-    const file = new File([await fs.readFile(filePath.path)], filePath.name);
-    const result = await bulkInsert(file, {
-      table: products,
-      schema: insertProductSchema,
-    });
+export const getProduct = os
+  .route({ method: 'GET', path: '/master-data/products/{id}' })
+  .input(z.object({ id: z.string() }))
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.getProduct(input.id);
 
-    return c.json(result);
-  } catch (error) {
-    return c.json({ error: 'Bulk insert failed' }, 500);
-  }
-};
+      if (!result) {
+        throw new ORPCError('NOT_FOUND', {
+          message: 'Product not found',
+        });
+      }
 
-export const getProducts = async (ctx: Context) => {
-  try {
-    const query = ctx.req.query();
-    const result = await service.getProducts(query);
+      return successResponse(result, 'Product fetched successfully');
+    } catch (error) {
+      console.log('error', error);
 
-    return ctx.json(
-      successResponse(
-        result.data,
-        'Products fetched successfully',
-        result.pagination
-      )
-    );
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to fetch products'), 500);
-  }
-};
+      if (error instanceof ORPCError) {
+        throw error;
+      }
 
-export const getProduct = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
-    const result = await service.getProduct(id);
-
-    if (!result) {
-      return ctx.json(errorResponse('Product not found', '404'));
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch product',
+      });
     }
+  });
 
-    return ctx.json(successResponse(result, 'Product fetched successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to fetch product'), 500);
-  }
-};
+export const updateProductById = os
+  .route({
+    method: 'PUT',
+    path: '/master-data/products/{id}',
+    inputStructure: 'detailed',
+  })
+  .input(
+    z.object({
+      params: z.object({
+        id: z.string(),
+      }),
+      body: updateProductSchema,
+    })
+  )
+  .handler(async ({ input }) => {
+    try {
+      const updatedProduct = await service.updateProductById({
+        id: input.params.id,
+        payload: input.body,
+      });
 
-export const updateProduct = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
+      if (!updatedProduct.length) {
+        throw new ORPCError('NOT_FOUND', {
+          message: 'Product not found',
+        });
+      }
 
-    const body = await parseRequest(ctx);
-    const filePath = ctx.get('filePath');
-    if (filePath) {
-      body.logo = filePath.name;
+      return successResponseNew({
+        data: updatedProduct,
+        message: 'Product updated successfully',
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to update product',
+      });
     }
-    const payload = updateProductSchema.parse(body);
+  });
 
-    const result = await service.updateProduct(id, payload);
+export const deleteProductById = os
+  .route({ method: 'DELETE', path: '/master-data/products/{id}' })
+  .input(z.object({ id: z.string() }))
+  .handler(async ({ input }) => {
+    try {
+      const deletedProduct = await service.deleteProduct(input.id);
 
-    return ctx.json(successResponse(result, 'Product updated successfully'));
-  } catch (error) {
-    console.log('error', error);
-    if (ctx.get('filePath')) {
-      await moveToFailed(ctx.get('filePath').path);
+      if (!deletedProduct.length) {
+        throw new ORPCError('NOT_FOUND', {
+          message: 'Product not found',
+        });
+      }
+
+      return successResponseNew({
+        data: deletedProduct,
+        message: 'Product deleted successfully',
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to delete product',
+      });
     }
-    return ctx.json(errorResponse(error, 'Failed to update product'), 500);
-  }
-};
-
-export const deleteProduct = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
-    const result = await service.deleteProduct(id);
-
-    return ctx.json(successResponse(result, 'Product deleted successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to delete product'), 500);
-  }
-};
+  });
 
 export const deleteAllProducts = async (ctx: Context) => {
   try {

@@ -1,13 +1,13 @@
 import { createInsertSchema, createUpdateSchema } from 'drizzle-zod';
 import { z } from 'zod';
 
-import { permissions } from '../model';
+import { permissionTable } from '../model';
 
-export const insertPermissionSchema = createInsertSchema(permissions, {
+export const insertPermissionSchema = createInsertSchema(permissionTable, {
   name: z.string().min(2),
 });
 
-export const updatePermissionSchema = createUpdateSchema(permissions, {
+export const updatePermissionSchema = createUpdateSchema(permissionTable, {
   name: z.string().optional(),
 });
 

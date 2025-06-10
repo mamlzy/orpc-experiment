@@ -1,132 +1,358 @@
-import * as fs from 'fs/promises';
 import { ORPCError, os } from '@orpc/server';
 import type { Context } from 'hono';
+import { z } from 'zod';
 
-import { customers } from '@repo/db/model';
-import { insertCustomerSchema, updateCustomerSchema } from '@repo/db/schema';
+import {
+  and,
+  count,
+  db,
+  desc,
+  eq,
+  exists,
+  getTableColumns,
+  ilike,
+  inArray,
+  isNull,
+  sql,
+  SQL,
+} from '@repo/db';
+import {
+  customerProductTable,
+  customerStatusEnum,
+  customerTable,
+  customerTypeEnum,
+  productTable,
+  type CustomerProduct,
+  type Product,
+} from '@repo/db/model';
+import {
+  createCustomerSchema,
+  createCustomersSchema,
+  updateCustomerSchema,
+} from '@repo/db/schema';
 
-import { errorResponse, successResponse } from '../../helpers/response';
+import {
+  errorResponse,
+  successResponse,
+  successResponseNew,
+} from '../../helpers/response';
+import { checkSimilarRecord } from '../../lib/checkSimilarRecord';
+import { createPagination } from '../../lib/utils';
 import * as service from '../../services/master-data/customer.service';
-import { bulkInsert } from '../../utils/bulkInsert';
-import { moveToFailed } from '../../utils/fileUpload';
-import { parseRequest } from '../../utils/parseRequest';
+import { createCustomer } from '../../services/master-data/customer.service';
 
-export const createCustomer = async (ctx: Context) => {
-  try {
-    const body = await parseRequest(ctx);
-    const filePath = ctx.get('filePath');
-    if (filePath) {
-      body.logo = filePath.name;
+export const checkSimilarityInput = os
+  .route({ method: 'POST', path: '/master-data/customers/check-similarity' })
+  .input(createCustomerSchema)
+  .handler(async ({ input }) => {
+    try {
+      const similar = await checkSimilarRecord({
+        table: customerTable,
+        column: customerTable.name,
+        input: input.name,
+        threshold: 0.75,
+      });
+
+      return successResponse(similar, 'Similarity found successfully');
+    } catch (error) {
+      console.log('error', error);
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to check similarity',
+      });
     }
-    const payload = insertCustomerSchema.parse(body);
+  });
 
-    const result = await service.createCustomer(payload);
-    return ctx.json(successResponse(result, 'Customer created successfully'));
-  } catch (error) {
-    console.log('error', error);
-    if (ctx.get('filePath')) {
-      await moveToFailed(ctx.get('filePath').path);
+export const create = os
+  .route({ method: 'POST', path: '/master-data/customers' })
+  .input(createCustomerSchema)
+  .handler(async ({ input }) => {
+    try {
+      const createdCustomer = await createCustomer(input);
+
+      if (!createdCustomer) {
+        throw new ORPCError('BAD_REQUEST', {
+          message: 'Failed to create customer',
+        });
+      }
+
+      return successResponseNew({
+        message: 'Customer created successfully',
+        data: null,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to create customer',
+      });
     }
-    return ctx.json(errorResponse(error, 'Failed to create customer'), 500);
-  }
-};
+  });
 
-export const bulkInsertCustomers = async (c: Context) => {
-  try {
-    const filePath = c.get('filePath');
-    if (!filePath) {
-      return c.json({ error: 'File not found' }, 400);
+export const createCustomers = os
+  .route({ method: 'POST', path: '/master-data/customers/many' })
+  .input(createCustomersSchema)
+  .handler(async ({ input }) => {
+    try {
+      const createdCustomers = await db
+        .insert(customerTable)
+        .values(input)
+        .returning();
+
+      if (createdCustomers.length < 1) {
+        throw new ORPCError('BAD_REQUEST', {
+          message: 'Failed to create customers',
+        });
+      }
+
+      return successResponseNew({
+        message: 'Customers created successfully',
+        data: createdCustomers,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to create customers',
+      });
     }
-
-    const file = new File([await fs.readFile(filePath.path)], filePath.name);
-    const result = await bulkInsert(file, {
-      table: customers,
-      schema: insertCustomerSchema,
-    });
-
-    return c.json(result);
-  } catch (error) {
-    return c.json({ error: 'Bulk insert failed' }, 500);
-  }
-};
+  });
 
 export const getCustomers = os
-  // .input(
-  //   z.object({
-  //     page: z.number().optional(),
-  //     limit: z.number().optional(),
-  //   })
-  // )
-  .handler(async () =>
-    // { input }
-    {
-      try {
-        // const result = await service.getCustomers(input);
+  .route({ method: 'GET', path: '/master-data/customers' })
+  .input(
+    z
+      .object({
+        page: z.coerce.number().optional(),
+        limit: z.coerce.number().optional(),
+        name: z.string().optional(),
+        status: z.array(z.enum(customerStatusEnum.enumValues)).optional(),
+        customerType: z.array(z.enum(customerTypeEnum.enumValues)).optional(),
+        productIds: z.array(z.string()).optional(),
+      })
+      .optional()
+  )
+  .handler(async ({ input }) => {
+    try {
+      const page = Math.max(Number(input?.page) || 1, 1);
+      const limit = Math.max(Number(input?.limit) || 10, 1);
+      const offset = (page - 1) * limit;
 
-        return { message: 'ok' };
+      const where: SQL[] = [isNull(customerTable.deletedAt)];
 
-        // return successResponse(
-        //   result.data,
-        //   'Customers fetched successfully',
-        //   result.pagination
-        // );
-      } catch (error: any) {
-        console.log('error', error);
-        throw new ORPCError(error.message);
+      if (input?.name) {
+        where.push(ilike(customerTable.name, `%${input.name}%`));
       }
+
+      if (input?.status?.length) {
+        where.push(inArray(customerTable.status, input.status));
+      }
+
+      if (input?.customerType?.length) {
+        where.push(inArray(customerTable.customerType, input.customerType));
+      }
+
+      if (input?.productIds?.length) {
+        where.push(
+          exists(
+            db
+              .select()
+              .from(customerProductTable)
+              .where(
+                and(
+                  inArray(customerProductTable.productId, input.productIds),
+                  eq(customerProductTable.customerId, customerTable.id)
+                )
+              )
+          )
+        );
+      }
+
+      type CustomerProductWithProduct = CustomerProduct & {
+        product: Product;
+      };
+
+      const data = await db
+        .select({
+          ...getTableColumns(customerTable),
+          customerProducts: sql<CustomerProductWithProduct[]>`COALESCE(
+            json_agg(
+              json_build_object(
+                'id', ${customerProductTable.id},
+                'productId', ${customerProductTable.productId},
+                'status', ${customerProductTable.status},
+                'product', row_to_json(${productTable})
+              )
+            ) FILTER (WHERE ${customerProductTable.id} IS NOT NULL),
+            '[]'
+          )`.as('customerProducts'),
+          deepeningCustomerProducts: sql<CustomerProductWithProduct[]>`COALESCE(
+            json_agg(
+              json_build_object(
+                'id', ${customerProductTable.id},
+                'productId', ${customerProductTable.productId},
+                'status', ${customerProductTable.status},
+                'product', row_to_json(${productTable})
+              )
+            ) FILTER (WHERE ${customerProductTable.id} IS NOT NULL AND ${customerProductTable.status} = 'DEEPENING'),
+            '[]'
+          )`.as('deepeningCustomerProducts'),
+          successCustomerProducts: sql<CustomerProductWithProduct[]>`COALESCE(
+            json_agg(
+              json_build_object(
+                'id', ${customerProductTable.id},
+                'productId', ${customerProductTable.productId},
+                'status', ${customerProductTable.status},
+                'product', row_to_json(${productTable})
+              )
+            ) FILTER (WHERE ${customerProductTable.id} IS NOT NULL AND ${customerProductTable.status} = 'SUCCESS'),
+            '[]'
+          )`.as('successCustomerProducts'),
+        })
+        .from(customerTable)
+        .leftJoin(
+          customerProductTable,
+          eq(customerProductTable.customerId, customerTable.id)
+        )
+        .leftJoin(
+          productTable,
+          eq(customerProductTable.productId, productTable.id)
+        )
+        .limit(limit)
+        .offset(offset)
+        .groupBy(customerTable.id)
+        .where(and(...where))
+        .orderBy(desc(customerTable.createdAt));
+
+      const totalCount =
+        (
+          await db
+            .select({ count: count() })
+            .from(customerTable)
+            .where(and(...where))
+        )[0]?.count ?? 0;
+
+      const pagination = createPagination({
+        page,
+        limit,
+        totalCount,
+      });
+
+      return successResponseNew({
+        message: 'Customers fetched successfully',
+        data,
+        pagination,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch customers',
+      });
     }
-  );
+  });
 
-export const getCustomer = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
-    const result = await service.getCustomer(id);
+export const getCustomer = os
+  .route({ method: 'GET', path: '/master-data/customers/{id}' })
+  .input(
+    z.object({
+      id: z.string(),
+    })
+  )
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.getCustomer(input.id);
 
-    if (!result) {
-      return ctx.json(errorResponse('Customer not found', '404'));
+      if (!result) {
+        throw new ORPCError('NOT_FOUND', {
+          message: 'Customer not found',
+        });
+      }
+
+      return successResponseNew({
+        message: 'Customer fetched successfully',
+        data: result,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch customer',
+      });
     }
+  });
 
-    return ctx.json(successResponse(result, 'Customer fetched successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to fetch customer'), 500);
-  }
-};
+export const updateById = os
+  .route({
+    method: 'PUT',
+    path: '/master-data/customers/{id}',
+    inputStructure: 'detailed',
+  })
+  .input(
+    z.object({
+      params: z.object({
+        id: z.string(),
+      }),
+      body: updateCustomerSchema,
+    })
+  )
+  .handler(async ({ input }) => {
+    try {
+      const updatedCustomer = await service.updateCustomer({
+        id: input.params.id,
+        payload: input.body,
+      });
 
-export const updateCustomer = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
+      if (!updatedCustomer.length) {
+        throw new ORPCError('NOT_FOUND', {
+          message: 'Customer not found',
+        });
+      }
 
-    const body = await parseRequest(ctx);
-    const filePath = ctx.get('filePath');
-    if (filePath) {
-      body.logo = filePath.name;
+      return successResponseNew({
+        message: 'Customer updated successfully',
+        data: updatedCustomer,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to update customer',
+      });
     }
-    const payload = updateCustomerSchema.parse(body);
+  });
 
-    const result = await service.updateCustomer(id, payload);
+export const deleteById = os
+  .route({ method: 'DELETE', path: '/master-data/customers/{id}' })
+  .input(
+    z.object({
+      id: z.string(),
+    })
+  )
+  .handler(async ({ input }) => {
+    try {
+      await service.deleteCustomer(input.id);
 
-    return ctx.json(successResponse(result, 'Customer updated successfully'));
-  } catch (error) {
-    console.log('error', error);
-    if (ctx.get('filePath')) {
-      await moveToFailed(ctx.get('filePath').path);
+      return successResponseNew({
+        message: 'Customer deleted successfully',
+        data: null,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to delete customer',
+      });
     }
-    return ctx.json(errorResponse(error, 'Failed to update customer'), 500);
-  }
-};
-
-export const deleteCustomer = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
-    const result = await service.deleteCustomer(id);
-
-    return ctx.json(successResponse(result, 'Customer deleted successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to delete customer'), 500);
-  }
-};
+  });
 
 export const deleteAllCustomers = async (ctx: Context) => {
   try {

@@ -1,48 +1,49 @@
+import { createId } from '@paralleldrive/cuid2';
 import { relations } from 'drizzle-orm';
-import {
-  decimal,
-  integer,
-  pgEnum,
-  pgTable,
-  serial,
-  varchar,
-} from 'drizzle-orm/pg-core';
+import { decimal, pgEnum, pgTable, varchar } from 'drizzle-orm/pg-core';
 
 import { timestamps } from '../lib/columns.helper';
-import { customers } from './customer';
-import { transactionItems } from './transaction-item';
-import { users } from './user';
+import { customerTable } from './customer';
+import { transactionItemTable } from './transaction-item';
+import { userTable } from './user';
 
-export const transactionStatusEnum = pgEnum('status', [
-  'pending',
-  'invoiced',
-  'done',
-  'canceled',
+export const transactionStatusEnum = pgEnum('transaction_status', [
+  'PENDING',
+  'PARTIALLY_INVOICED',
+  'FULLY_INVOICED',
+  'DONE',
+  'CANCELED',
 ]);
 
-export const transactions = pgTable('transactions', {
-  id: serial().primaryKey(),
-  marketingId: varchar({ length: 255 }).references(() => users.id),
-  customerId: integer().references(() => customers.id),
+export const transactionTable = pgTable('transactions', {
+  id: varchar({ length: 255 }).primaryKey().$defaultFn(createId),
+  marketingId: varchar({ length: 255 })
+    .notNull()
+    .references(() => userTable.id, {
+      onUpdate: 'cascade',
+    }),
+  customerId: varchar({ length: 255 })
+    .notNull()
+    .references(() => customerTable.id),
   subtotal: decimal('subtotal', { precision: 15, scale: 2 }).notNull(),
   taxAmount: decimal('tax_amount', { precision: 15, scale: 2 }).default('0'),
   stampDuty: decimal('stamp_duty', { precision: 15, scale: 2 }).default('0'),
   grandTotal: decimal('grand_total', { precision: 15, scale: 2 }).notNull(),
-  status: transactionStatusEnum().default('pending'),
+  status: transactionStatusEnum().default('PENDING'),
   ...timestamps,
 });
 
-export const transactionsRelations = relations(
-  transactions,
+export const transactionTableRelations = relations(
+  transactionTable,
   ({ one, many }) => ({
-    marketing: one(users, {
-      fields: [transactions.marketingId],
-      references: [users.id],
+    marketing: one(userTable, {
+      fields: [transactionTable.marketingId],
+      references: [userTable.id],
     }),
-    customer: one(customers, {
-      fields: [transactions.customerId],
-      references: [customers.id],
+    customer: one(customerTable, {
+      fields: [transactionTable.customerId],
+      references: [customerTable.id],
     }),
-    items: many(transactionItems),
+    items: many(transactionItemTable),
   })
 );

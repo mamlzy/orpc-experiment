@@ -1,127 +1,380 @@
-import * as fs from 'fs/promises';
-import type { Context } from 'hono';
+import { ORPCError, os } from '@orpc/server';
+import { z } from 'zod';
 
-import { transactions } from '@repo/db/model';
 import {
-  insertTransactionSchema,
+  and,
+  count,
+  db,
+  eq,
+  getTableColumns,
+  ilike,
+  inArray,
+  isNull,
+  SQL,
+} from '@repo/db';
+import { customerTable, transactionTable, userTable } from '@repo/db/model';
+import {
+  createTransactionSchema,
+  createTransactionsSchema,
+  getTransactionByIdQuerySchema,
+  getTransactionsQuerySchema,
   updateTransactionSchema,
 } from '@repo/db/schema';
 
-import { errorResponse, successResponse } from '../../helpers/response';
+import { successResponseNew } from '../../helpers/response';
+import { createPagination } from '../../lib/utils';
 import * as service from '../../services/sales/transaction.service';
-import { bulkInsert } from '../../utils/bulkInsert';
-import { parseRequest } from '../../utils/parseRequest';
 
-export const createTransaction = async (ctx: Context) => {
-  try {
-    const body = await parseRequest(ctx);
-    const payload = insertTransactionSchema.parse(body);
+export const createTransaction = os
+  .route({ method: 'POST', path: '/sales/transactions' })
+  .input(createTransactionSchema)
+  .handler(async ({ input }) => {
+    try {
+      const createdTransaction = (await service.createTransaction(input))[0];
 
-    const result = await service.createTransaction(payload);
-    return ctx.json(
-      successResponse(result, 'Transaction created successfully')
-    );
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to create Transaction'), 500);
-  }
-};
+      if (!createdTransaction) {
+        throw new ORPCError('BAD_REQUEST', {
+          message: 'Failed to create transaction',
+        });
+      }
 
-export const bulkInsertTransactions = async (c: Context) => {
-  try {
-    const filePath = c.get('filePath');
-    if (!filePath) {
-      return c.json({ error: 'File not found' }, 400);
+      return successResponseNew({
+        message: 'Transaction created successfully',
+        data: createdTransaction,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to create transaction',
+      });
     }
+  });
 
-    const file = new File([await fs.readFile(filePath.path)], filePath.name);
-    const result = await bulkInsert(file, {
-      table: transactions,
-      schema: insertTransactionSchema,
-    });
+export const createTransactions = os
+  .route({ method: 'POST', path: '/sales/transactions/many' })
+  .input(createTransactionsSchema)
+  .handler(async ({ input }) => {
+    try {
+      const transformed = input.map((tx) => {
+        const subtotal = tx.items.reduce(
+          (sum, item) => sum + item.qty * item.price,
+          0
+        );
+        const grandTotal = subtotal + (tx.taxAmount ?? 0) + (tx.stampDuty ?? 0);
 
-    return c.json(result);
-  } catch (error) {
-    return c.json({ error: 'Bulk insert failed' }, 500);
-  }
-};
+        return {
+          marketingId: tx.marketingId ?? null,
+          customerId: String(tx.customerId),
+          subtotal: subtotal.toFixed(2),
+          taxAmount: (tx.taxAmount ?? 0).toFixed(2),
+          stampDuty: (tx.stampDuty ?? 0).toFixed(2),
+          grandTotal: grandTotal.toFixed(2),
+        };
+      });
 
-export const getTransactions = async (ctx: Context) => {
-  try {
-    const query = ctx.req.query();
-    const result = await service.getTransactions(query);
+      const createdTransactions = await db
+        .insert(transactionTable)
+        .values(transformed)
+        .returning();
 
-    return ctx.json(
-      successResponse(
-        result.data,
-        'Transactions fetched successfully',
-        result.pagination
-      )
-    );
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to fetch Transactions'), 500);
-  }
-};
+      if (createdTransactions.length < 1) {
+        throw new ORPCError('BAD_REQUEST', {
+          message: 'Failed to create transactions',
+        });
+      }
 
-export const getTransaction = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
-    const result = await service.getTransaction(id);
+      return successResponseNew({
+        message: 'Transactions created successfully',
+        data: createdTransactions,
+      });
+    } catch (error) {
+      console.log('error', error);
 
-    if (!result) {
-      return ctx.json(errorResponse('Transaction not found', '404'));
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to create transactions',
+      });
     }
+  });
 
-    return ctx.json(
-      successResponse(result, 'Transaction fetched successfully')
-    );
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to fetch Transaction'), 500);
-  }
-};
+export const getTransactions = os
+  .route({ method: 'GET', path: '/sales/transactions' })
+  .input(getTransactionsQuerySchema.optional())
+  .handler(async ({ input }) => {
+    try {
+      const page = Math.max(Number(input?.page) || 1, 1);
+      const limit = Math.max(Number(input?.limit) || 10, 1);
+      const offset = (page - 1) * limit;
 
-export const updateTransaction = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
+      const where: SQL[] = [isNull(transactionTable.deletedAt)];
 
-    const body = await parseRequest(ctx);
-    const payload = updateTransactionSchema.parse(body);
+      if (input?.transactionId) {
+        where.push(ilike(transactionTable.id, `%${input.transactionId}%`));
+      }
+      if (input?.marketingId) {
+        where.push(
+          ilike(transactionTable.marketingId, `%${input.marketingId}%`)
+        );
+      }
+      if (input?.customerId) {
+        where.push(ilike(transactionTable.customerId, `%${input.customerId}%`));
+      }
+      if (input?.status?.length) {
+        where.push(inArray(transactionTable.status, input.status));
+      }
 
-    const result = await service.updateTransaction(id, payload);
+      const data = await db
+        .select({
+          ...getTableColumns(transactionTable),
+          marketing: {
+            name: userTable.name,
+          },
+          customer: {
+            name: customerTable.name,
+          },
+        })
+        .from(transactionTable)
+        .leftJoin(userTable, eq(transactionTable.marketingId, userTable.id))
+        .leftJoin(
+          customerTable,
+          eq(transactionTable.customerId, customerTable.id)
+        )
+        .limit(limit)
+        .offset(offset)
+        .where(and(...where));
 
-    return ctx.json(
-      successResponse(result, 'Transaction updated successfully')
-    );
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to update Transaction'), 500);
-  }
-};
+      const totalCount =
+        (
+          await db
+            .select({ count: count() })
+            .from(transactionTable)
+            .where(and(...where))
+        )[0]?.count ?? 0;
 
-export const deleteTransaction = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
-    const result = await service.deleteTransaction(id);
+      const pagination = createPagination({
+        page,
+        limit,
+        totalCount,
+      });
 
-    return ctx.json(
-      successResponse(result, 'Transaction deleted successfully')
-    );
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to delete Transaction'), 500);
-  }
-};
+      return successResponseNew({
+        message: 'Transactions fetched successfully',
+        data,
+        pagination,
+      });
+    } catch (error) {
+      console.log('error', error);
 
-export const deleteAllTransactions = async (ctx: Context) => {
-  try {
-    const result = await service.deleteAllTransactions();
-    return ctx.json(
-      successResponse(result, 'Transactions deleted successfully')
-    );
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to delete Transactions'), 500);
-  }
-};
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch transactions',
+      });
+    }
+  });
+
+export const getTransaction = os
+  .route({ method: 'GET', path: '/sales/transactions/{id}' })
+  .input(getTransactionByIdQuerySchema)
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.getTransaction(input);
+
+      if (!result) {
+        throw new ORPCError('NOT_FOUND', {
+          message: 'Transaction not found',
+        });
+      }
+
+      return successResponseNew({
+        message: 'Transaction fetched successfully',
+        data: result,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch transaction',
+      });
+    }
+  });
+
+export const updateTransaction = os
+  .route({
+    method: 'PUT',
+    path: '/sales/transactions/{id}',
+    inputStructure: 'detailed',
+  })
+  .input(
+    z.object({
+      params: z.object({
+        id: z.string(),
+      }),
+      body: updateTransactionSchema,
+    })
+  )
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.updateTransaction({
+        id: input.params.id,
+        payload: input.body,
+      });
+
+      return successResponseNew({
+        message: 'Transaction updated successfully',
+        data: { result },
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to update transaction',
+      });
+    }
+  });
+
+export const deleteTransaction = os
+  .route({ method: 'DELETE', path: '/sales/transactions/{id}' })
+  .input(
+    z.object({
+      id: z.string(),
+    })
+  )
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.deleteTransaction(input.id);
+
+      if (!result) {
+        throw new ORPCError('NOT_FOUND', {
+          message: 'Transaction not found',
+        });
+      }
+
+      return successResponseNew({
+        message: 'Transaction deleted successfully',
+        data: result,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to delete transaction',
+      });
+    }
+  });
+
+export const deleteAllTransactions = os
+  .route({ method: 'DELETE', path: '/sales/transactions' })
+  .handler(async () => {
+    try {
+      const result = await service.deleteAllTransactions();
+      return successResponseNew({
+        message: 'Transactions deleted successfully',
+        data: result,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to delete transaction',
+      });
+    }
+  });
+
+export const getTransactionForInvoice = os
+  .route({
+    method: 'GET',
+    path: '/sales/transactions/available-for-invoice/{id}',
+  })
+  .input(
+    z.object({
+      id: z.string(),
+    })
+  )
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.getTransactionForInvoice(input.id);
+
+      if (!result) {
+        throw new ORPCError('NOT_FOUND', {
+          message: 'Transaction not found',
+        });
+      }
+
+      return successResponseNew({
+        message: 'Transaction fetched successfully',
+        data: result,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch transaction',
+      });
+    }
+  });
+
+export const getTransactionInvoiceSummary = os
+  .route({
+    method: 'GET',
+    path: '/sales/transactions/invoice-summary/{id}',
+  })
+  .input(
+    z.object({
+      id: z.string(),
+    })
+  )
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.getTransactionInvoiceSummary(input.id);
+
+      if (!result) {
+        throw new ORPCError('NOT_FOUND', {
+          message: 'Transaction not found',
+        });
+      }
+
+      return successResponseNew({
+        message: 'Transaction fetched successfully',
+        data: result,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch transaction',
+      });
+    }
+  });

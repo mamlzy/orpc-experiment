@@ -1,3 +1,4 @@
+
 FROM node:22.12.0-alpine AS alpine
 
 # The web Dockerfile is copy-pasted into our main docs at /docs/handbook/deploying-with-docker.
@@ -52,7 +53,7 @@ ENV NODE_ENV production
 
 # Copy the .env.production file into the Docker image
 COPY /apps/api/.env.production /app/apps/api/.env.production
-# COPY /packages/db/.env.production /app/packages/db/.env.production
+COPY /packages/db/.env.production /app/packages/db/.env.production
 
 # Don't run production as root
 # TODO: don't use root user 

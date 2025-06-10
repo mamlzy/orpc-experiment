@@ -1,26 +1,73 @@
 import * as fs from 'fs/promises';
+import { ORPCError, os } from '@orpc/server';
 import type { Context } from 'hono';
+import { z } from 'zod';
 
-import { services } from '@repo/db/model';
-import { insertServiceSchema, updateServiceSchema } from '@repo/db/schema';
+import { and, count, db, ilike, isNull, SQL } from '@repo/db';
+import { serviceTable } from '@repo/db/model';
+import {
+  createServiceSchema,
+  createServicesSchema,
+  updateServiceSchema,
+} from '@repo/db/schema';
 
-import { errorResponse, successResponse } from '../../helpers/response';
+import { successResponseNew } from '../../helpers/response';
+import { createPagination } from '../../lib/utils';
 import * as service from '../../services/master-data/service.service';
-import { bulkInsert } from '../../utils/bulkInsert';
-import { parseRequest } from '../../utils/parseRequest';
+import { bulkInsert } from '../../utils/bulk-insert';
 
-export const createService = async (ctx: Context) => {
-  try {
-    const body = await parseRequest(ctx);
-    const payload = insertServiceSchema.parse(body);
+export const createService = os
+  .route({ method: 'POST', path: '/master-data/services' })
+  .input(createServiceSchema)
+  .handler(async ({ input }) => {
+    try {
+      const data = await service.createService(input);
 
-    const result = await service.createService(payload);
-    return ctx.json(successResponse(result, 'Service created successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to create service'), 500);
-  }
-};
+      return successResponseNew({
+        data,
+        message: 'Service created successfully',
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to create service',
+      });
+    }
+  });
+
+export const createServices = os
+  .route({ method: 'POST', path: '/master-data/services/many' })
+  .input(createServicesSchema)
+  .handler(async ({ input }) => {
+    try {
+      const createdService = await db
+        .insert(serviceTable)
+        .values(input)
+        .returning();
+
+      if (createdService.length < 1) {
+        throw new ORPCError('BAD_REQUEST', {
+          message: 'Failed to create services',
+        });
+      }
+
+      return successResponseNew({
+        data: createdService,
+        message: 'Service created successfully',
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to create service',
+      });
+    }
+  });
 
 export const bulkInsertServices = async (c: Context) => {
   try {
@@ -31,8 +78,8 @@ export const bulkInsertServices = async (c: Context) => {
 
     const file = new File([await fs.readFile(filePath.path)], filePath.name);
     const result = await bulkInsert(file, {
-      table: services,
-      schema: insertServiceSchema,
+      table: serviceTable,
+      schema: createServiceSchema,
     });
 
     return c.json(result);
@@ -41,74 +88,162 @@ export const bulkInsertServices = async (c: Context) => {
   }
 };
 
-export const getServices = async (ctx: Context) => {
-  try {
-    const query = ctx.req.query();
-    const result = await service.getServices(query);
+export const getServices = os
+  .route({ method: 'GET', path: '/master-data/services' })
+  .input(
+    z
+      .object({
+        page: z.coerce.number().optional(),
+        limit: z.coerce.number().optional(),
+        name: z.string().optional(),
+      })
+      .optional()
+  )
+  .handler(async ({ input }) => {
+    try {
+      const page = input?.page ?? 1;
+      const limit = input?.limit ?? 10;
+      const offset = (page - 1) * limit;
 
-    return ctx.json(
-      successResponse(
-        result.data,
-        'Services fetched successfully',
-        result.pagination
-      )
-    );
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to fetch services'), 500);
-  }
-};
+      const where: SQL[] = [isNull(serviceTable.deletedAt)];
 
-export const getService = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
-    const result = await service.getService(id);
+      if (input?.name) {
+        where.push(ilike(serviceTable.name, `%${input.name}%`));
+      }
 
-    if (!result) {
-      return ctx.json(errorResponse('Service not found', '404'));
+      const data = await db.query.serviceTable.findMany({
+        limit,
+        offset,
+        where: and(...where),
+      });
+
+      const totalCount =
+        (
+          await db
+            .select({ count: count() })
+            .from(serviceTable)
+            .where(and(...where))
+        )[0]?.count ?? 0;
+
+      const pagination = createPagination({
+        totalCount,
+        page,
+        limit,
+      });
+
+      return successResponseNew({
+        message: 'Service fetched successfully',
+        data,
+        pagination,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch services',
+      });
     }
+  });
 
-    return ctx.json(successResponse(result, 'Service fetched successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to fetch service'), 500);
-  }
-};
+export const getService = os
+  .route({ method: 'GET', path: '/master-data/services/{id}' })
+  .input(z.object({ id: z.string() }))
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.getServiceById(input.id);
 
-export const updateService = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
+      if (!result) {
+        throw new ORPCError('NOT_FOUND', {
+          message: 'Service not found',
+        });
+      }
 
-    const body = await parseRequest(ctx);
-    const payload = updateServiceSchema.parse(body);
+      return successResponseNew({
+        data: result,
+        message: 'Service fetched successfully',
+      });
+    } catch (error) {
+      console.log('error', error);
 
-    const result = await service.updateService(id, payload);
+      if (error instanceof ORPCError) {
+        throw error;
+      }
 
-    return ctx.json(successResponse(result, 'Service updated successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to update service'), 500);
-  }
-};
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch service',
+      });
+    }
+  });
 
-export const deleteService = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
-    const result = await service.deleteService(id);
+export const updateService = os
+  .route({
+    method: 'PUT',
+    path: '/master-data/services/{id}',
+    inputStructure: 'detailed',
+  })
+  .input(
+    z.object({
+      params: z.object({
+        id: z.string(),
+      }),
+      body: updateServiceSchema,
+    })
+  )
+  .handler(async ({ input }) => {
+    try {
+      const data = await service.updateService({
+        id: input.params.id,
+        payload: input.body,
+      });
 
-    return ctx.json(successResponse(result, 'Service deleted successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to delete service'), 500);
-  }
-};
+      return successResponseNew({
+        data,
+        message: 'Service updated successfully',
+      });
+    } catch (error) {
+      console.log('error', error);
 
-export const deleteAllServices = async (ctx: Context) => {
-  try {
-    const result = await service.deleteAllServices();
-    return ctx.json(successResponse(result, 'Services deleted successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to delete services'), 500);
-  }
-};
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to update service',
+      });
+    }
+  });
+
+export const deleteService = os
+  .route({ method: 'DELETE', path: '/master-data/services/{id}' })
+  .input(z.object({ id: z.string() }))
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.deleteService(input.id);
+
+      return successResponseNew({
+        data: result,
+        message: 'Service deleted successfully',
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to delete service',
+      });
+    }
+  });
+
+export const deleteAllServices = os
+  .route({ method: 'DELETE', path: '/master-data/services/all' })
+  .handler(async () => {
+    try {
+      const result = await service.deleteAllServices();
+
+      return successResponseNew({
+        data: result,
+        message: 'Services deleted successfully',
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to delete services',
+      });
+    }
+  });

@@ -1,14 +1,24 @@
 import * as fs from 'fs/promises';
+import { ORPCError, os } from '@orpc/server';
 import type { Context } from 'hono';
+import { z } from 'zod';
 
-import { companies } from '@repo/db/model';
-import { insertCompanySchema, updateCompanySchema } from '@repo/db/schema';
+import { companyTable } from '@repo/db/model';
+import {
+  createCompanySchema,
+  getAllCompanyQuerySchema,
+  updateCompanySchema,
+} from '@repo/db/schema';
 
-import { errorResponse, successResponse } from '../../helpers/response';
+import {
+  errorResponse,
+  successResponse,
+  successResponseNew,
+} from '../../helpers/response';
 import * as service from '../../services/master-data/company.service';
-import { bulkInsert } from '../../utils/bulkInsert';
-import { moveToFailed } from '../../utils/fileUpload';
-import { parseRequest } from '../../utils/parseRequest';
+import { bulkInsert } from '../../utils/bulk-insert';
+import { moveToFailed } from '../../utils/file-upload';
+import { parseRequest } from '../../utils/parse-request';
 
 export const createCompany = async (ctx: Context) => {
   try {
@@ -17,7 +27,7 @@ export const createCompany = async (ctx: Context) => {
     if (filePath) {
       body.logo = filePath.name;
     }
-    const payload = insertCompanySchema.parse(body);
+    const payload = createCompanySchema.parse(body);
 
     const result = await service.createCompany(payload);
     return ctx.json(successResponse(result, 'Company created successfully'));
@@ -39,8 +49,8 @@ export const bulkInsertCompanies = async (c: Context) => {
 
     const file = new File([await fs.readFile(filePath.path)], filePath.name);
     const result = await bulkInsert(file, {
-      table: companies,
-      schema: insertCompanySchema,
+      table: companyTable,
+      schema: createCompanySchema,
     });
 
     return c.json(result);
@@ -49,43 +59,58 @@ export const bulkInsertCompanies = async (c: Context) => {
   }
 };
 
-export const getCompanies = async (ctx: Context) => {
-  try {
-    const query = ctx.req.query();
-    const result = await service.getCompanies(query);
+export const getCompanies = os
+  .input(getAllCompanyQuerySchema)
+  .handler(async ({ input }) => {
+    try {
+      const { data, pagination } = await service.getCompanies(input);
 
-    return ctx.json(
-      successResponse(
-        result.data,
-        'Companies fetched successfully',
-        result.pagination
-      )
-    );
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to fetch companies'), 500);
-  }
-};
+      return successResponseNew({
+        message: 'Companies fetched successfully',
+        data,
+        pagination,
+      });
+    } catch (error) {
+      console.log('error', error);
 
-export const getCompany = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
-    const result = await service.getCompany(id);
-
-    if (!result) {
-      return ctx.json(errorResponse('Company not found', '404'));
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch companies',
+      });
     }
+  });
 
-    return ctx.json(successResponse(result, 'Company fetched successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to fetch company'), 500);
-  }
-};
+export const getCompany = os
+  .input(z.object({ id: z.string() }))
+  .handler(async ({ input }) => {
+    try {
+      const company = await service.getCompany(input.id);
+
+      if (!company) {
+        throw new ORPCError('NOT_FOUND', {
+          message: 'Company not found',
+        });
+      }
+
+      return successResponseNew({
+        message: 'Company fetched successfully',
+        data: company,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch company',
+      });
+    }
+  });
 
 export const updateCompany = async (ctx: Context) => {
   try {
-    const id = Number(ctx.req.param('id'));
+    const id = ctx.req.param('id');
 
     const body = await parseRequest(ctx);
     const filePath = ctx.get('filePath');
@@ -108,7 +133,7 @@ export const updateCompany = async (ctx: Context) => {
 
 export const deleteCompany = async (ctx: Context) => {
   try {
-    const id = Number(ctx.req.param('id'));
+    const id = ctx.req.param('id');
     const result = await service.deleteCompany(id);
 
     return ctx.json(successResponse(result, 'Company deleted successfully'));

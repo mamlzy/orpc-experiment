@@ -1,49 +1,47 @@
+import { createId } from '@paralleldrive/cuid2';
 import { relations } from 'drizzle-orm';
-import {
-  integer,
-  pgEnum,
-  pgTable,
-  serial,
-  text,
-  varchar,
-} from 'drizzle-orm/pg-core';
+import { pgEnum, pgTable, text, varchar } from 'drizzle-orm/pg-core';
 
 import { timestamps } from '../lib/columns.helper';
-import { companies } from './company';
-import { customersPics } from './customer-pic';
-import { customersProducts } from './customer-product';
-import { users } from './user';
+import { companyTable } from './company';
+import { customerPicTable } from './customer-pic';
+import { customerProductTable } from './customer-product';
+import { userTable } from './user';
 
-export const businessEntityEnum = pgEnum('business_entity', [
+export const customerBusinessEntityEnum = pgEnum('business_entity', [
   'PT',
   'CV',
   'UD',
-  'Firma',
-  'Koperasi',
-  'Yayasan',
-  'Perorangan',
+  'FIRM',
+  'KOPERASI',
+  'YAYASAN',
+  'PERORANGAN',
   'BUMN',
   'BUMS',
   'BUPD',
-  'Lainnya',
+  'LAINNYA',
 ]);
+export type CustomerBusinessEntityEnum =
+  (typeof customerBusinessEntityEnum.enumValues)[number];
 
 export const customerTypeEnum = pgEnum('customer_type', [
-  'International',
-  'Domestic',
+  'INTERNATIONAL',
+  'DOMESTIC',
 ]);
+export type CustomerTypeEnum = (typeof customerTypeEnum.enumValues)[number];
 
-export const customerStatusEnum = pgEnum('status', [
-  'Active',
-  'Inactive',
-  'Bank Data',
+export const customerStatusEnum = pgEnum('customer_status', [
+  'ACTIVE',
+  'INACTIVE',
+  'BANK_DATA',
 ]);
+export type CustomerStatusEnum = (typeof customerStatusEnum.enumValues)[number];
 
-export const customers = pgTable('customers', {
-  id: serial().primaryKey(),
-  businessEntity: businessEntityEnum(),
-  customerType: customerTypeEnum().default('International'),
-  name: varchar({ length: 255 }),
+export const customerTable = pgTable('customers', {
+  id: varchar({ length: 255 }).primaryKey().$defaultFn(createId),
+  businessEntity: customerBusinessEntityEnum().notNull(),
+  customerType: customerTypeEnum().notNull().default('INTERNATIONAL'),
+  name: varchar({ length: 255 }).notNull(),
   pareto: varchar({ length: 255 }),
   address: text(),
   telephone: varchar({ length: 255 }),
@@ -58,21 +56,29 @@ export const customers = pgTable('customers', {
   latitude: text(),
   longitude: text(),
   logo: varchar({ length: 255 }),
-  marketingId: varchar({ length: 255 }).references(() => users.id),
-  companyId: integer().references(() => companies.id),
-  status: customerStatusEnum(),
+  marketingId: varchar({ length: 255 }).references(() => userTable.id, {
+    onUpdate: 'cascade',
+  }),
+  companyId: varchar({ length: 255 }).references(() => companyTable.id),
+  status: customerStatusEnum('status'),
+  description: text(),
   ...timestamps,
 });
 
-export const customersRelations = relations(customers, ({ one, many }) => ({
-  company: one(companies, {
-    fields: [customers.companyId],
-    references: [companies.id],
-  }),
-  marketing: one(users, {
-    fields: [customers.marketingId],
-    references: [users.id],
-  }),
-  customerPics: many(customersPics),
-  customerProducts: many(customersProducts),
-}));
+export type Customer = typeof customerTable.$inferSelect;
+
+export const customerTableRelations = relations(
+  customerTable,
+  ({ one, many }) => ({
+    company: one(companyTable, {
+      fields: [customerTable.companyId],
+      references: [companyTable.id],
+    }),
+    marketing: one(userTable, {
+      fields: [customerTable.marketingId],
+      references: [userTable.id],
+    }),
+    customerPics: many(customerPicTable),
+    customerProducts: many(customerProductTable),
+  })
+);

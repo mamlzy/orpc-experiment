@@ -4,27 +4,36 @@ import { paymentMethodEnum } from '../model/payment';
 
 export const insertPaymentSchema = z.object({
   date: z.string(),
-  customerId: z.preprocess((val) => Number(val), z.number().int().positive()),
+  customerId: z.string(),
   paymentMethod: z.enum(paymentMethodEnum.enumValues),
+  bankAccount: z.string().optional(),
+  bankNumber: z.string().optional(),
   totalPaid: z.number(),
   items: z.array(
     z.object({
-      invoiceId: z.number(),
+      invoiceId: z.string(),
       amountPaid: z.number(),
     })
   ),
 });
+
+export const insertPaymentsSchema = insertPaymentSchema
+  .extend({
+    paymentNumber: z.string(),
+  })
+  .array();
+
 export const updatePaymentSchema = z.object({
   date: z.string().optional(),
-  customerId: z
-    .preprocess((val) => Number(val), z.number().int().positive())
-    .optional(),
+  customerId: z.string().optional(),
   paymentMethod: z.enum(paymentMethodEnum.enumValues).optional(),
+  bankAccount: z.string().optional(),
+  bankNumber: z.string().optional(),
   totalPaid: z.number().optional(),
   items: z
     .array(
       z.object({
-        invoiceId: z.number(),
+        invoiceId: z.string(),
         amountPaid: z.number(),
       })
     )

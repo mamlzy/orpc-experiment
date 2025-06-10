@@ -1,9 +1,9 @@
 import { relations } from 'drizzle-orm';
 import { pgTable } from 'drizzle-orm/pg-core';
 
-import { users } from './user';
+import { userTable } from './user';
 
-export const sessions = pgTable('sessions', (t) => ({
+export const sessionTable = pgTable('sessions', (t) => ({
   id: t.varchar({ length: 36 }).primaryKey(),
   expiresAt: t.timestamp().notNull(),
   token: t.varchar({ length: 255 }).notNull().unique(),
@@ -14,12 +14,16 @@ export const sessions = pgTable('sessions', (t) => ({
   userId: t
     .varchar({ length: 36 })
     .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
+    .references(() => userTable.id, {
+      onUpdate: 'cascade',
+      onDelete: 'cascade',
+    }),
+  impersonatedBy: t.text(),
 }));
 
-export const sessionsRelations = relations(sessions, ({ one }) => ({
-  user: one(users, {
-    fields: [sessions.userId],
-    references: [users.id],
+export const sessionTableRelations = relations(sessionTable, ({ one }) => ({
+  user: one(userTable, {
+    fields: [sessionTable.userId],
+    references: [userTable.id],
   }),
 }));

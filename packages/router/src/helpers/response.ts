@@ -1,4 +1,6 @@
-export interface ApiResponse<T> {
+import type { SuccessResponse } from '@repo/shared/types';
+
+export type ApiResponse<T> = {
   success: boolean;
   message: string;
   data?: T;
@@ -7,12 +9,18 @@ export interface ApiResponse<T> {
     totalPages: number;
     totalItems: number;
   };
-}
+};
 
-export const successResponse = (
-  data: any,
+export const successResponseNew = <TData extends object | object[] | null>(
+  params: SuccessResponse<TData>
+) => {
+  return params;
+};
+
+export const successResponse = <T, U>(
+  data: T,
   message = 'Success',
-  pagination?: any
+  pagination?: U
 ) => ({
   status: 'success',
   message,
@@ -20,7 +28,7 @@ export const successResponse = (
   pagination,
 });
 
-export const errorResponse = (error: any, message = 'Error') => ({
+export const errorResponse = <T>(error: T, message = 'Error') => ({
   status: 'error',
   message,
   error,

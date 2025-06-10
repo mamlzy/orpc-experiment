@@ -7,8 +7,8 @@ import {
 
 import { errorResponse, successResponse } from '../../helpers/response';
 import * as service from '../../services/setting/permission.service';
-import { moveToFailed } from '../../utils/fileUpload';
-import { parseRequest } from '../../utils/parseRequest';
+import { moveToFailed } from '../../utils/file-upload';
+import { parseRequest } from '../../utils/parse-request';
 
 export const getPermissions = async (ctx: Context) => {
   try {
@@ -30,7 +30,7 @@ export const getPermissions = async (ctx: Context) => {
 
 export const getPermission = async (ctx: Context) => {
   try {
-    const id = Number(ctx.req.param('id'));
+    const id = ctx.req.param('id');
     const result = await service.getPermission(id);
 
     if (!result) {
@@ -66,7 +66,7 @@ export const createPermission = async (ctx: Context) => {
 
 export const updatePermission = async (ctx: Context) => {
   try {
-    const id = Number(ctx.req.param('id'));
+    const id = ctx.req.param('id');
     const payload = updatePermissionSchema.parse(await ctx.req.json());
 
     const result = await service.updatePermission(id, payload);
@@ -80,7 +80,7 @@ export const updatePermission = async (ctx: Context) => {
 
 export const deletePermission = async (ctx: Context) => {
   try {
-    const id = Number(ctx.req.param('id'));
+    const id = ctx.req.param('id');
     const result = await service.deletePermission(id);
 
     return ctx.json(successResponse(result, 'Permission deleted successfully'));

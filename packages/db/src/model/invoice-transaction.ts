@@ -1,13 +1,28 @@
-import { integer, pgTable } from 'drizzle-orm/pg-core';
+import { relations } from 'drizzle-orm';
+import { pgTable, varchar } from 'drizzle-orm/pg-core';
 
-import { invoices } from './invoice';
-import { transactions } from './transaction';
+import { invoiceTable } from './invoice';
+import { transactionTable } from './transaction';
 
-export const invoiceTransactions = pgTable('invoice_transactions', {
-  invoiceId: integer()
+export const invoiceTransactionTable = pgTable('invoice_transactions', {
+  invoiceId: varchar({ length: 255 })
     .notNull()
-    .references(() => invoices.id, { onDelete: 'cascade' }),
-  transactionId: integer()
+    .references(() => invoiceTable.id, { onDelete: 'cascade' }),
+  transactionId: varchar({ length: 255 })
     .notNull()
-    .references(() => transactions.id, { onDelete: 'cascade' }),
+    .references(() => transactionTable.id, { onDelete: 'cascade' }),
 });
+
+export const invoiceTransactionTableRelations = relations(
+  invoiceTransactionTable,
+  ({ one }) => ({
+    invoice: one(invoiceTable, {
+      fields: [invoiceTransactionTable.invoiceId],
+      references: [invoiceTable.id],
+    }),
+    transaction: one(transactionTable, {
+      fields: [invoiceTransactionTable.transactionId],
+      references: [transactionTable.id],
+    }),
+  })
+);

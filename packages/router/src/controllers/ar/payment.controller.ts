@@ -1,114 +1,266 @@
-import * as fs from 'fs/promises';
-import type { Context } from 'hono';
+import { ORPCError, os } from '@orpc/server';
+import { z } from 'zod';
 
-import { payments } from '@repo/db/model';
-import { insertPaymentSchema, updatePaymentSchema } from '@repo/db/schema';
+import { and, count, db, getTableColumns, ilike, isNull, SQL } from '@repo/db';
+import { paymentTable } from '@repo/db/model';
+import {
+  insertPaymentSchema,
+  insertPaymentsSchema,
+  updatePaymentSchema,
+} from '@repo/db/schema';
 
-import { errorResponse, successResponse } from '../../helpers/response';
+import { successResponseNew } from '../../helpers/response';
+import { createPagination } from '../../lib/utils';
 import * as service from '../../services/ar/payment.service';
-import { bulkInsert } from '../../utils/bulkInsert';
-import { parseRequest } from '../../utils/parseRequest';
 
-export const createPayment = async (ctx: Context) => {
-  try {
-    const body = await parseRequest(ctx);
-    const payload = insertPaymentSchema.parse(body);
+export const createPayment = os
+  .route({ method: 'POST', path: '/ar/payments' })
+  .input(insertPaymentSchema)
+  .handler(async ({ input }) => {
+    try {
+      const createdPayment = await service.createPayment(input);
 
-    const result = await service.createPayment(payload);
-    return ctx.json(successResponse(result, 'Payment created successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to create Payment'), 500);
-  }
-};
+      if (!createdPayment) {
+        throw new ORPCError('BAD_REQUEST', {
+          message: 'Failed to create payment',
+        });
+      }
 
-export const bulkInsertPayments = async (c: Context) => {
-  try {
-    const filePath = c.get('filePath');
-    if (!filePath) {
-      return c.json({ error: 'File not found' }, 400);
+      return successResponseNew({
+        message: 'Payment created successfully',
+        data: createdPayment,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to create payment',
+      });
     }
+  });
 
-    const file = new File([await fs.readFile(filePath.path)], filePath.name);
-    const result = await bulkInsert(file, {
-      table: payments,
-      schema: insertPaymentSchema,
-    });
+export const createPayments = os
+  .route({ method: 'POST', path: '/ar/payments/multiple' })
+  .input(insertPaymentsSchema)
+  .handler(async ({ input }) => {
+    try {
+      const transformed = input.map((payment) => {
+        return {
+          paymentNumber: payment.paymentNumber,
+          date: payment.date,
+          customerId: payment.customerId,
+          paymentMethod: payment.paymentMethod,
+          bankAccount: payment.bankAccount ?? null,
+          bankNumber: payment.bankNumber ?? null,
+          totalPaid: payment.totalPaid.toFixed(2),
+        };
+      });
 
-    return c.json(result);
-  } catch (error) {
-    return c.json({ error: 'Bulk insert failed' }, 500);
-  }
-};
+      const createdPayments = await db
+        .insert(paymentTable)
+        .values(transformed)
+        .returning();
 
-export const getPayments = async (ctx: Context) => {
-  try {
-    const query = ctx.req.query();
-    const result = await service.getPayments(query);
+      if (createdPayments.length < 1) {
+        throw new ORPCError('BAD_REQUEST', {
+          message: 'Failed to create payments',
+        });
+      }
 
-    return ctx.json(
-      successResponse(
-        result.data,
-        'Payments fetched successfully',
-        result.pagination
-      )
-    );
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to fetch Payments'), 500);
-  }
-};
+      return successResponseNew({
+        message: 'Payments created successfully',
+        data: createdPayments,
+      });
+    } catch (error) {
+      console.error('error', error);
 
-export const getPayment = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
-    const result = await service.getPayment(id);
+      if (error instanceof ORPCError) {
+        throw error;
+      }
 
-    if (!result) {
-      return ctx.json(errorResponse('Payment not found', '404'));
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to create payments',
+      });
     }
+  });
 
-    return ctx.json(successResponse(result, 'Payment fetched successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to fetch Payment'), 500);
-  }
-};
+export const getPayments = os
+  .route({ method: 'GET', path: '/ar/payments' })
+  .input(
+    z
+      .object({
+        page: z.coerce.number().optional(),
+        limit: z.coerce.number().optional(),
+        paymentNumber: z.string().optional(),
+        customerId: z.string().optional(),
+      })
+      .optional()
+  )
+  .handler(async ({ input }) => {
+    try {
+      const page = Math.max(Number(input?.page) || 1, 1);
+      const limit = Math.max(Number(input?.limit) || 10, 1);
+      const offset = (page - 1) * limit;
 
-export const updatePayment = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
+      const where: SQL[] = [isNull(paymentTable.deletedAt)];
 
-    const body = await parseRequest(ctx);
-    const payload = updatePaymentSchema.parse(body);
+      if (input?.paymentNumber) {
+        where.push(
+          ilike(paymentTable.paymentNumber, `%${input.paymentNumber}%`)
+        );
+      }
 
-    const result = await service.updatePayment(id, payload);
+      if (input?.customerId) {
+        where.push(ilike(paymentTable.customerId, `%${input.customerId}%`));
+      }
 
-    return ctx.json(successResponse(result, 'Payment updated successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to update Payment'), 500);
-  }
-};
+      const data = await db
+        .select({
+          ...getTableColumns(paymentTable),
+        })
+        .from(paymentTable)
+        .limit(limit)
+        .offset(offset)
+        .where(and(...where));
 
-export const deletePayment = async (ctx: Context) => {
-  try {
-    const id = Number(ctx.req.param('id'));
-    const result = await service.deletePayment(id);
+      const totalCount =
+        (
+          await db
+            .select({ count: count() })
+            .from(paymentTable)
+            .where(and(...where))
+        )[0]?.count ?? 0;
 
-    return ctx.json(successResponse(result, 'Payment deleted successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to delete Payment'), 500);
-  }
-};
+      const pagination = createPagination({
+        page,
+        limit,
+        totalCount,
+      });
 
-export const deleteAllPayments = async (ctx: Context) => {
-  try {
-    const result = await service.deleteAllPayments();
-    return ctx.json(successResponse(result, 'Payments deleted successfully'));
-  } catch (error) {
-    console.log('error', error);
-    return ctx.json(errorResponse(error, 'Failed to delete Payments'), 500);
-  }
-};
+      return successResponseNew({
+        message: 'Payments fetched successfully',
+        data,
+        pagination,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch payments',
+      });
+    }
+  });
+
+export const getPayment = os
+  .route({ method: 'GET', path: '/ar/payments/{id}' })
+  .input(
+    z.object({
+      id: z.string(),
+    })
+  )
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.getPayment(input.id);
+
+      if (!result) {
+        throw new ORPCError('NOT_FOUND', {
+          message: 'Payment not found',
+        });
+      }
+
+      return successResponseNew({
+        message: 'Payment fetched successfully',
+        data: result,
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to fetch payment',
+      });
+    }
+  });
+
+export const updatePayment = os
+  .route({ method: 'PUT', path: '/ar/payments/{id}' })
+  .input(z.object({ id: z.string() }).merge(updatePaymentSchema))
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.updatePayment(input.id, input);
+      return successResponseNew({
+        message: 'Payment updated successfully',
+        data: { result },
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to update payment',
+      });
+    }
+  });
+
+export const deletePayment = os
+  .route({ method: 'DELETE', path: '/ar/payments/{id}' })
+  .input(
+    z.object({
+      id: z.string(),
+    })
+  )
+  .handler(async ({ input }) => {
+    try {
+      const result = await service.deletePayment(input.id);
+      return successResponseNew({
+        message: 'Payment deleted successfully',
+        data: { result },
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to delete payment',
+      });
+    }
+  });
+
+export const deleteAllPayments = os
+  .route({ method: 'DELETE', path: '/ar/payments' })
+  .handler(async () => {
+    try {
+      const result = await service.deleteAllPayments();
+      return successResponseNew({
+        message: 'Payments deleted successfully',
+        data: { result },
+      });
+    } catch (error) {
+      console.log('error', error);
+
+      if (error instanceof ORPCError) {
+        throw error;
+      }
+
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to delete payment',
+      });
+    }
+  });

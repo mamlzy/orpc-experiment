@@ -1,31 +1,31 @@
 import { relations } from 'drizzle-orm';
-import { decimal, integer, pgTable } from 'drizzle-orm/pg-core';
+import { decimal, pgTable, varchar } from 'drizzle-orm/pg-core';
 
 import { timestamps } from '../lib/columns.helper';
-import { invoices } from './invoice';
-import { payments } from './payment';
+import { invoiceTable } from './invoice';
+import { paymentTable } from './payment';
 
-export const paymentInvoices = pgTable('payment_invoices', {
-  paymentId: integer().references(() => payments.id, {
+export const paymentInvoiceTable = pgTable('payment_invoices', {
+  paymentId: varchar({ length: 255 }).references(() => paymentTable.id, {
     onDelete: 'cascade',
   }),
-  invoiceId: integer().references(() => invoices.id, {
+  invoiceId: varchar({ length: 255 }).references(() => invoiceTable.id, {
     onDelete: 'cascade',
   }),
   amountPaid: decimal({ precision: 10, scale: 2 }).notNull(),
   ...timestamps,
 });
 
-export const paymentInvoicesRelations = relations(
-  paymentInvoices,
+export const paymentInvoiceTableRelations = relations(
+  paymentInvoiceTable,
   ({ one }) => ({
-    payment: one(payments, {
-      fields: [paymentInvoices.paymentId],
-      references: [payments.id],
+    payment: one(paymentTable, {
+      fields: [paymentInvoiceTable.paymentId],
+      references: [paymentTable.id],
     }),
-    invoice: one(invoices, {
-      fields: [paymentInvoices.invoiceId],
-      references: [invoices.id],
+    invoice: one(invoiceTable, {
+      fields: [paymentInvoiceTable.invoiceId],
+      references: [invoiceTable.id],
     }),
   })
 );

@@ -17,15 +17,17 @@ export * from './roles';
 export * from './permission';
 export * from './role-permission';
 
-//! sales
+//! ar
 export * from './sales-summary';
 export * from './transaction';
 export * from './transaction-item';
-
-//! invoice
 export * from './invoice';
 export * from './invoice-transaction';
-
-//! payment
 export * from './payment';
 export * from './payment-invoice';
+
+//! setting
+export * from './bank-account';
+
+//! activity log
+export * from './activity-log';

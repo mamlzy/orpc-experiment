@@ -1,15 +1,14 @@
 import { and, count, db, eq, inArray, sql } from '@repo/db';
 import {
-  invoices,
-  invoiceTransactions,
-  paymentInvoices,
-  transactions,
+  invoiceTable,
+  invoiceTransactionTable,
+  paymentInvoiceTable,
+  transactionTable,
 } from '@repo/db/model';
-import type { InvoiceInput, InvoiceUpdate } from '@repo/db/schema';
 
-import { buildWhereClause } from '../../utils/whereClause';
+import { buildWhereClause } from '../../utils/where-clause';
 
-type Invoice = typeof invoices.$inferSelect;
+type Invoice = typeof invoiceTable.$inferSelect;
 
 export const generateInvoiceNumber = async () => {
   const currentYear = new Date().getFullYear();
@@ -17,8 +16,8 @@ export const generateInvoiceNumber = async () => {
   const totalCount = (
     await db
       .select({ count: count() })
-      .from(invoices)
-      .where(sql`YEAR(${invoices.createdAt}) = ${currentYear}`)
+      .from(invoiceTable)
+      .where(sql`EXTRACT(YEAR FROM ${invoiceTable.createdAt}) = ${currentYear}`)
   )[0]!.count;
 
   const nextNumber = totalCount + 1;
@@ -26,24 +25,13 @@ export const generateInvoiceNumber = async () => {
   return `INV-${currentYear}-${String(nextNumber).padStart(3, '0')}`;
 };
 
-// export const createInvoice = async (payload: InvoiceInput) => {
-//   const invoiceId = await db
-//     .insert(invoices)
-//     .values({
-//       ...payload,
-//       date: new Date(payload.date),
-//     })
-//     .$returningId();
-//   return invoiceId;
-// };
-
-export const createInvoice = async (payload: InvoiceInput) => {
+export const createInvoiceMultipleUnused = async (payload: any) => {
   const invoiceNo = await generateInvoiceNumber();
 
   const transactionsData = await db
     .select()
-    .from(transactions)
-    .where(inArray(transactions.id, payload.transactionIds));
+    .from(transactionTable)
+    .where(inArray(transactionTable.id, payload.transactionId));
 
   if (transactionsData.length === 0) {
     throw new Error('No valid transactions found.');
@@ -64,37 +52,87 @@ export const createInvoice = async (payload: InvoiceInput) => {
 
   const grandTotal = subtotal + taxAmount + stampDuty;
 
-  const createdInvoice = await db
-    .insert(invoices)
+  const [invoiceData] = await db
+    .insert(invoiceTable)
     .values({
       invoiceNo,
       date: payload.date,
+      dueDate: payload.dueDate,
+      customerId: payload.customerId,
+      type: payload.type.toUpperCase(),
+      percentage: payload.percentage,
       subtotal: subtotal.toFixed(2),
       taxAmount: taxAmount.toFixed(2),
       stampDuty: stampDuty.toFixed(2),
       grandTotal: grandTotal.toFixed(2),
-      customerId: payload.customerId,
+      bankId: payload.bankId,
+      status: 'UNPAID',
       description: payload.description,
     })
-    .returning();
+    .returning({ id: invoiceTable.id });
 
-  if (!createdInvoice[0]) {
-    throw new Error('Failed to create invoice');
-  }
-
-  await db.insert(invoiceTransactions).values(
-    payload.transactionIds.map((transactionId) => ({
-      invoiceId: Number(createdInvoice[0]!.id),
-      transactionId: Number(transactionId),
+  await db.insert(invoiceTransactionTable).values(
+    payload.transactionId.map((transactionId: string) => ({
+      invoiceId: invoiceData?.id,
+      transactionId,
     }))
   );
 
   await db
-    .update(transactions)
+    .update(transactionTable)
     .set({
-      status: 'invoiced',
+      status: 'PARTIALLY_INVOICED',
     })
-    .where(inArray(transactions.id, payload.transactionIds));
+    .where(inArray(transactionTable.id, payload.transactionId));
+
+  return { invoiceNo };
+};
+
+export const createInvoice = async (payload: any) => {
+  const invoiceNo = await generateInvoiceNumber();
+
+  const transactionData = await db.query.transactionTable.findFirst({
+    where: and(
+      eq(transactionTable.id, payload.transactionId),
+      eq(transactionTable.status, 'PENDING')
+    ),
+  });
+
+  if (!transactionData) {
+    throw new Error('No valid transactions found.');
+  }
+  const dpp = (11 / 12) * payload.subtotal;
+  const taxAmount = ((payload.taxRate ?? 12) / 100) * dpp;
+
+  const createdInvoice = await db.insert(invoiceTable).values({
+    invoiceNo,
+    date: payload.date,
+    dueDate: payload.dueDate,
+    customerId: payload.customerId,
+    transactionId: payload.transactionId,
+    type: payload.type.toUpperCase(),
+    percentage: payload.percentage,
+    subtotal: payload.subtotal,
+    dpp: dpp.toFixed(2),
+    taxRate: payload.taxRate ?? 12,
+    taxAmount: taxAmount.toFixed(2),
+    stampDuty: payload.stampDuty,
+    grandTotal: payload.grandTotal,
+    bankId: payload.bankId,
+    status: 'UNPAID',
+    description: payload.description,
+  });
+
+  if (!createdInvoice) {
+    throw new Error('Failed to create invoice');
+  }
+
+  await db
+    .update(transactionTable)
+    .set({
+      status: 'PARTIALLY_INVOICED',
+    })
+    .where(eq(transactionTable.id, payload.transactionId));
 
   return { invoiceNo };
 };
@@ -106,12 +144,12 @@ export const getInvoices = async (
   const limit = Math.max(Number(query.limit) || 10, 1);
   const offset = (page - 1) * limit;
 
-  const whereConditions = buildWhereClause(invoices, query);
+  const whereConditions = buildWhereClause(invoiceTable, query);
   const whereClause = whereConditions.length
     ? and(...whereConditions)
     : undefined;
 
-  const data = await db.query.invoices.findMany({
+  const data = await db.query.invoiceTable.findMany({
     limit,
     offset,
     where: whereClause,
@@ -125,8 +163,9 @@ export const getInvoices = async (
   });
 
   const total =
-    (await db.select({ count: count() }).from(invoices).where(whereClause))[0]
-      ?.count ?? 0;
+    (
+      await db.select({ count: count() }).from(invoiceTable).where(whereClause)
+    )[0]?.count ?? 0;
 
   return {
     data,
@@ -138,13 +177,48 @@ export const getInvoices = async (
   };
 };
 
-export const getInvoice = async (id: number) => {
-  const result = await db.query.invoices.findFirst({
-    where: eq(invoices.id, id),
+export const getInvoice = async (id: string) => {
+  const result = await db.query.invoiceTable.findFirst({
+    where: eq(invoiceTable.id, id),
     with: {
       customer: {
         columns: {
           name: true,
+        },
+      },
+      bankAccount: {
+        columns: {
+          bankName: true,
+          accountName: true,
+          accountNumber: true,
+        },
+      },
+      transaction: {
+        columns: {
+          id: true,
+          marketingId: true,
+          customerId: true,
+          subtotal: true,
+          taxAmount: true,
+          stampDuty: true,
+          grandTotal: true,
+        },
+        with: {
+          items: {
+            columns: {
+              id: true,
+              productId: true,
+              qty: true,
+              price: true,
+            },
+            with: {
+              product: {
+                columns: {
+                  name: true,
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -153,22 +227,22 @@ export const getInvoice = async (id: number) => {
   return result;
 };
 
-export const updateInvoice = async (id: number, payload: InvoiceUpdate) => {
+export const updateInvoice = async (id: string, payload: any) => {
   return db
-    .update(invoices)
+    .update(invoiceTable)
     .set({
       ...payload,
       date: payload?.date || undefined,
     })
-    .where(eq(invoices.id, id));
+    .where(eq(invoiceTable.id, id));
 };
 
-export const deleteInvoice = async (id: number) => {
-  return db.delete(invoices).where(eq(invoices.id, id));
+export const deleteInvoice = async (id: string) => {
+  return db.delete(invoiceTable).where(eq(invoiceTable.id, id));
 };
 
 export const deleteAllInvoices = async () => {
-  return db.delete(invoices);
+  return db.delete(invoiceTable);
 };
 
 // ** //
@@ -176,18 +250,21 @@ export const deleteAllInvoices = async () => {
 export const getOutstandingInvoiceByNumber = async (invoiceNo: string) => {
   const invoice = await db
     .select({
-      invoiceId: invoices.id,
-      invoiceNo: invoices.invoiceNo,
-      date: invoices.date,
-      grandTotal: invoices.grandTotal,
-      totalPaid: sql`COALESCE(SUM(${paymentInvoices.amountPaid}), 0)`.as(
+      invoiceId: invoiceTable.id,
+      invoiceNo: invoiceTable.invoiceNo,
+      date: invoiceTable.date,
+      grandTotal: invoiceTable.grandTotal,
+      totalPaid: sql`COALESCE(SUM(${paymentInvoiceTable.amountPaid}), 0)`.as(
         'totalPaid'
       ),
     })
-    .from(invoices)
-    .leftJoin(paymentInvoices, eq(invoices.id, paymentInvoices.invoiceId))
-    .where(eq(invoices.invoiceNo, invoiceNo))
-    .groupBy(invoices.id)
+    .from(invoiceTable)
+    .leftJoin(
+      paymentInvoiceTable,
+      eq(invoiceTable.id, paymentInvoiceTable.invoiceId)
+    )
+    .where(eq(invoiceTable.invoiceNo, invoiceNo))
+    .groupBy(invoiceTable.id)
     .then((res) => res[0]);
 
   if (!invoice) {

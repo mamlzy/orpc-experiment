@@ -4,8 +4,8 @@ import { insertRoleSchema, updateRoleSchema } from '@repo/db/schema';
 
 import { errorResponse, successResponse } from '../../helpers/response';
 import * as service from '../../services/setting/role.service';
-import { moveToFailed } from '../../utils/fileUpload';
-import { parseRequest } from '../../utils/parseRequest';
+import { moveToFailed } from '../../utils/file-upload';
+import { parseRequest } from '../../utils/parse-request';
 
 export const getRoles = async (ctx: Context) => {
   try {
@@ -27,7 +27,7 @@ export const getRoles = async (ctx: Context) => {
 
 export const getRole = async (ctx: Context) => {
   try {
-    const id = Number(ctx.req.param('id'));
+    const id = ctx.req.param('id');
     const result = await service.getRole(id);
 
     if (!result) {
@@ -63,7 +63,7 @@ export const createRole = async (ctx: Context) => {
 
 export const updateRole = async (ctx: Context) => {
   try {
-    const id = Number(ctx.req.param('id'));
+    const id = ctx.req.param('id');
     const payload = updateRoleSchema.parse(await ctx.req.json());
 
     const result = await service.updateRole(id, payload);
@@ -77,7 +77,7 @@ export const updateRole = async (ctx: Context) => {
 
 export const deleteRole = async (ctx: Context) => {
   try {
-    const id = Number(ctx.req.param('id'));
+    const id = ctx.req.param('id');
     const result = await service.deleteRole(id);
 
     return ctx.json(successResponse(result, 'Role deleted successfully'));

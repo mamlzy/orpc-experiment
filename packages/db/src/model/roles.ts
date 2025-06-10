@@ -1,15 +1,16 @@
+import { createId } from '@paralleldrive/cuid2';
 import { relations } from 'drizzle-orm';
-import { pgTable, serial, varchar } from 'drizzle-orm/pg-core';
+import { pgTable, varchar } from 'drizzle-orm/pg-core';
 
 import { timestamps } from '../lib/columns.helper';
-import { permissions } from './permission';
+import { permissionTable } from './permission';
 
-export const roles = pgTable('roles', {
-  id: serial().primaryKey(),
+export const roleTable = pgTable('roles', {
+  id: varchar({ length: 255 }).primaryKey().$defaultFn(createId),
   name: varchar({ length: 255 }).notNull(),
   ...timestamps,
 });
 
-export const rolesRelations = relations(roles, ({ many }) => ({
-  permission: many(permissions),
+export const roleTableRelations = relations(roleTable, ({ many }) => ({
+  permission: many(permissionTable),
 }));

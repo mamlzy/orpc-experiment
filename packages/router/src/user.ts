@@ -27,9 +27,6 @@ export const createUser = os
   .handler(async ({ input }) => {
     const { file } = input;
 
-    console.log('input => ', input);
-    console.log('process.cwd() => ', CWD);
-
     const fileBuffer = Buffer.from(await file.arrayBuffer());
 
     const uploadDir = path.join(CWD, 'public', 'uploads');

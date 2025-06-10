@@ -14,7 +14,7 @@ services:
       - learning-network
     depends_on:
       - learning-api
-    # env_file: './apps/web/.env.production'
+    env_file: './apps/web/.env.production'
 
   learning-api:
     container_name: learning-api
@@ -31,7 +31,7 @@ services:
       - learning-api:/app/apps/api/public #! type volume
     networks:
       - learning-network
-    # env_file: './apps/api/.env.production'
+    env_file: './apps/api/.env.production'
 
 networks:
   learning-network:

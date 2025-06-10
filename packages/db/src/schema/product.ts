@@ -1,20 +1,18 @@
-import { createInsertSchema, createUpdateSchema } from 'drizzle-zod';
+import { createInsertSchema } from 'drizzle-zod';
 import { z } from 'zod';
 
-import { products } from '../model/product';
+import { productTable } from '../model/product';
 
-export const insertProductSchema = createInsertSchema(products, {
-  name: z.string(),
-  description: z.string(),
-  serviceId: z.preprocess((val) => Number(val), z.number().int().positive()),
-});
-export const updateProductSchema = createUpdateSchema(products, {
-  name: z.string().optional(),
-  description: z.string().optional(),
-  serviceId: z
-    .preprocess((val) => Number(val), z.number().int().positive())
-    .optional(),
+export const createProductSchema = createInsertSchema(productTable, {
+  name: (s) => s.nonempty(),
+  description: (s) => s.nonempty(),
+  serviceId: (s) => s.nonempty(),
 });
 
-export type ProductInput = z.infer<typeof insertProductSchema>;
-export type ProductUpdate = z.infer<typeof updateProductSchema>;
+export const createProductsSchema = createProductSchema.array();
+
+export const updateProductSchema = createProductSchema;
+
+export type CreateProductSchema = z.infer<typeof createProductSchema>;
+export type CreateProductsSchema = z.infer<typeof createProductsSchema>;
+export type UpdateProductSchema = z.infer<typeof updateProductSchema>;

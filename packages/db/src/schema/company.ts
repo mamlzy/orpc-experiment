@@ -1,19 +1,23 @@
-import { createInsertSchema, createUpdateSchema } from 'drizzle-zod';
+import { createInsertSchema } from 'drizzle-zod';
 import { z } from 'zod';
 
-import { companies } from '../model/company';
+import { companyTable } from '../model/company';
 
-const nullableString = z.string().nullable().optional();
+export const getAllCompanyQuerySchema = z
+  .object({
+    page: z.number().optional(),
+    limit: z.number().optional(),
+    name: z.string().optional(),
+  })
+  .optional();
 
-export const insertCompanySchema = createInsertSchema(companies, {
+export const createCompanySchema = createInsertSchema(companyTable, {
   companyName: z.string().min(2),
-  logo: nullableString,
+  logo: z.string().nullable(),
 });
 
-export const updateCompanySchema = createUpdateSchema(companies, {
-  companyName: z.string().optional(),
-  logo: nullableString,
-});
+export const updateCompanySchema = createCompanySchema;
 
-export type CompanyInput = z.infer<typeof insertCompanySchema>;
-export type CompanyUpdate = z.infer<typeof updateCompanySchema>;
+export type GetAllCompanyQuery = z.infer<typeof getAllCompanyQuerySchema>;
+export type CreateCompanySchema = z.infer<typeof createCompanySchema>;
+export type UpdateCompanySchema = z.infer<typeof updateCompanySchema>;

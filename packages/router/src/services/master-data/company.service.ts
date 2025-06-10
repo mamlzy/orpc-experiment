@@ -1,63 +1,71 @@
-import { and, count, db, eq } from '@repo/db';
-import { companies } from '@repo/db/model';
-import type { CompanyInput, CompanyUpdate } from '@repo/db/schema';
+import { and, count, db, eq, isNull, like, SQL } from '@repo/db';
+import { companyTable } from '@repo/db/model';
+import type {
+  CreateCompanySchema,
+  GetAllCompanyQuery,
+  UpdateCompanySchema,
+} from '@repo/db/schema';
 
-import { buildWhereClause } from '../../utils/whereClause';
+import { createPagination } from '../../lib/utils';
 
-type Company = typeof companies.$inferSelect;
-
-export const getCompanies = async (
-  query: Partial<Company> & { page?: number; limit?: number }
-) => {
-  const page = Math.max(Number(query.page) || 1, 1);
-  const limit = Math.max(Number(query.limit) || 10, 1);
+export const getCompanies = async (query: GetAllCompanyQuery) => {
+  const page = Math.max(Number(query?.page) || 1, 1);
+  const limit = Math.max(Number(query?.limit) || 10, 1);
   const offset = (page - 1) * limit;
 
-  const whereConditions = buildWhereClause(companies, query);
-  const whereClause = whereConditions.length
-    ? and(...whereConditions)
-    : undefined;
+  const where: SQL[] = [isNull(companyTable.deletedAt)];
 
-  const data = await db.query.companies.findMany({
+  if (query?.name) {
+    where.push(like(companyTable.companyName, `%${query.name}%`));
+  }
+
+  const data = await db.query.companyTable.findMany({
     limit,
     offset,
-    where: whereClause,
+    where: and(...where),
   });
 
-  const total =
-    (await db.select({ count: count() }).from(companies).where(whereClause))[0]
-      ?.count ?? 0;
+  const totalCount =
+    (
+      await db
+        .select({ count: count() })
+        .from(companyTable)
+        .where(and(...where))
+    )[0]?.count ?? 0;
+
+  const pagination = createPagination({
+    totalCount,
+    page,
+    limit,
+  });
 
   return {
     data,
-    pagination: {
-      total_page: Math.ceil(Number(total) / limit),
-      total: Number(total),
-      current_page: page,
-    },
+    pagination,
   };
 };
 
-export const getCompany = async (id: number) => {
-  const result = await db.query.companies.findFirst({
-    where: eq(companies.id, id),
+export const getCompany = (id: string) => {
+  return db.query.companyTable.findFirst({
+    where: eq(companyTable.id, id),
   });
-
-  return result;
 };
 
-export const createCompany = async (payload: CompanyInput) => {
-  return db.insert(companies).values(payload).returning();
+export const createCompany = async (payload: CreateCompanySchema) => {
+  return db.insert(companyTable).values(payload).returning();
 };
 
-export const updateCompany = async (id: number, payload: CompanyUpdate) => {
-  return db.update(companies).set(payload).where(eq(companies.id, id));
+export const updateCompany = async (
+  id: string,
+  payload: UpdateCompanySchema
+) => {
+  return db.update(companyTable).set(payload).where(eq(companyTable.id, id));
 };
 
-export const deleteCompany = async (id: number) => {
-  return db.delete(companies).where(eq(companies.id, id));
+export const deleteCompany = async (id: string) => {
+  return db.delete(companyTable).where(eq(companyTable.id, id));
 };
 
 export const deleteAllCompanies = async () => {
-  return db.delete(companies);
+  return db.delete(companyTable);
 };
